@@ -41,12 +41,12 @@
 get_zendesk_tickets <- function(subdomain, email, api_token, save = TRUE, filename = "all_tickets.rds") {
 
   # 1. Lokale Pfade laden
-  if (file.exists("~/local.R")) {
+  if (file.exists("~/workspace/local.R")) {
     # local = TRUE sorgt dafür, dass datadir und syncdir nur in dieser
     # Umgebung existieren und nicht global überschreiben
-    source("~/local.R", local = TRUE)
+    source("~/workspace/local.R", local = TRUE)
   } else {
-    stop("Die Datei '~/local.R' wurde nicht gefunden. Bitte anlegen, damit 'datadir' definiert ist.")
+    stop("Die Datei '~/workspace/local.R' wurde nicht gefunden. Bitte anlegen, damit 'datadir' definiert ist.")
   }
 
   # 2. Authentifizierung vorbereiten
