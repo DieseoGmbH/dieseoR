@@ -9,7 +9,8 @@ get_zendesk_tickets(
   email,
   api_token,
   save = TRUE,
-  filename = "all_tickets.rds"
+  filename = "all_tickets.rds",
+  merge_existing = TRUE
 )
 }
 \arguments{
@@ -21,35 +22,24 @@ get_zendesk_tickets(
 
 \item{save}{Logical. Gibt an, ob die Daten als .rds-Datei gespeichert werden sollen. Standard ist TRUE.}
 
-\item{filename}{Character. Der Name der Datei (inkl. .rds Endung), wenn `save = TRUE`. Standard ist "all_tickets.rds".}
+\item{filename}{Character. Der Name der Datei (inkl. .rds Endung). Standard ist "all_tickets.rds".}
+
+\item{merge_existing}{Logical. Wenn TRUE, werden neu geladene Daten mit der bestehenden lokalen Datei gemischt (Upsert), um in Zendesk gelöschte Tickets zu behalten.}
 }
 \value{
 Ein Data Frame (Tibble) mit allen Zendesk-Tickets.
 }
 \description{
 Diese Funktion verbindet sich mit der Zendesk API und lädt mittels
-Cursor-Pagination alle verfügbaren Tickets herunter. Die Daten werden
-als Data Frame zurückgegeben. Optional können die Daten automatisch in
-dem in `~/local.R` definierten `datadir` unter dem Unterordner "zendesk"
-gespeichert werden.
+Cursor-Pagination alle verfügbaren Tickets herunter. Wenn bereits eine
+Datei existiert, werden alte (gelöschte) Tickets behalten und bestehende aktualisiert.
 }
 \examples{
 \dontrun{
-# Nur in R laden, ohne zu speichern:
 tickets <- get_zendesk_tickets(
   subdomain = "feew",
   email = "muster@ffe3.de",
-  api_token = "dein_geheimer_token",
-  save = FALSE
-)
-
-# Speichern mit eigenem Dateinamen:
-tickets <- get_zendesk_tickets(
-  subdomain = "feew",
-  email = "muster@ffe3.de",
-  api_token = "dein_geheimer_token",
-  save = TRUE,
-  filename = "tickets_backup_heute.rds"
+  api_token = "dein_geheimer_token"
 )
 }
 }
