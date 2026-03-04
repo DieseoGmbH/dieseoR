@@ -1,0 +1,169 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-03-04"
+---
+
+# Prerequisites and definition of global vars
+
+```{r}
+library(devtools)
+library(tidyverse)
+load_all()
+source("~/workspace/local.R")
+```
+
+## assign tokens and extract the zendesk data
+
+```{r}
+# 1. Deine Zugangsdaten eintragen
+subdomain <- "pummys"        # Nur die Subdomain (ohne .zendesk.com)
+email <- "kontakt@dieseo.de"       # Die E-Mail, mit der du dich bei Zendesk einloggst
+api_token <- "IoYnQZnfSQddwuC2GnM0sqpNZmfrATUDAGDnifbV"
+get_zendesk_tickets(subdomain = subdomain, email = email, api_token = api_token)
+```
+
+# Datawrangling
+
+## Data description
+
+| Spaltenname | Datentyp in R | Bedeutung & Inhalt |
+|-----------|-----------|--------------------------------------------------|
+| url | chr | Der direkte API-Endpunkt-Link zu genau diesem Ticket. |
+| id | int | Die eindeutige Ticket-Nummer (Ticket ID), die auch der Kunde sieht. Sehr wichtig für Joins! |
+| external_id | logi/chr | Eine ID aus einem externen System (z. B. deinem CRM), falls ihr das an Zendesk gekoppelt habt. Oft NA. |
+| created_at | chr | Erstellungsdatum und -uhrzeit (UTC-Zeitstempel). Tipp: Mit as.POSIXct() in R in ein echtes Datum umwandeln. |
+| updated_at | chr | Datum und Uhrzeit der letzten Aktualisierung des Tickets. |
+| generated_timestamp | int | Interner Unix-Zeitstempel, wann Zendesk diese Daten für den API-Abruf generiert hat. |
+| type | chr | Die Art des Tickets (z. B. incident, question, task, problem). |
+| subject | chr | Der Betreff der Anfrage (z. B. der E-Mail-Betreff). |
+| raw_subject | chr | Der unformatierte Ursprungs-Betreff (oft identisch mit subject). |
+| description | chr | Der Text der allerersten Nachricht, mit der das Ticket eröffnet wurde. |
+| priority | logi/chr | Ticket-Priorität (low, normal, high, urgent). Wenn nicht genutzt, steht hier NA. |
+| status | chr | Der System-Status (new, open, pending, hold, solved, closed). |
+| recipient | chr | Eure Support-Adresse, an die das Ticket gesendet wurde (z. B. [support\@pummys](mailto:support@pummys){.email}...). |
+| requester_id | num | Die eindeutige User-ID des Kunden/Anfragenden. |
+| submitter_id | num | Die ID der Person, die das Ticket angelegt hat (oft identisch mit requester_id, außer ein Agent legt es für den Kunden an). |
+| assignee_id | num | Die Agenten-ID des Mitarbeiters, der das Ticket aktuell bearbeitet. |
+| organization_id | num | Die ID des Unternehmens des Kunden (hilfreich im B2B-Support). |
+| group_id | num | Die ID der Agenten-Gruppe (z. B. "First Level Support"), der das Ticket zugewiesen ist. |
+| collaborator_ids | list | Verschachtelt: Liste von IDs interner Mitarbeiter, die CC gesetzt sind. |
+| follower_ids | list | Verschachtelt: Liste von IDs von Followern des Tickets. |
+| email_cc_ids | list | Verschachtelt: Liste von IDs externer Personen im CC. |
+| forum_topic_id | logi/num | ID eines verknüpften Community-Forum-Beitrags (falls vorhanden). |
+| problem_id | logi/num | ID des Haupt-Tickets (Problem), falls dieses Ticket ein untergeordneter "Incident" ist. |
+| has_incidents | logi | TRUE, wenn dies ein "Problem"-Ticket ist, an dem weitere Vorfälle hängen. |
+| is_public | logi | TRUE, wenn mindestens ein Kommentar im Ticket für den Kunden sichtbar ist. |
+| due_at | logi/chr | Fälligkeitsdatum. Wird nur verwendet, wenn der Ticket-Typ task ist. |
+| tags | list | Verschachtelt: Eine Liste aller Schlagwörter/Tags (z. B. live-chat, first-priority). |
+| custom_fields | list | Verschachtelt: Dataframes eurer benutzerdefinierten Ticketfelder. Vorsicht: Diese musst du später extrahieren/unnesten. |
+| sharing_agreement_ids | list | IDs für geteilte Tickets zwischen verschiedenen Zendesk-Konten. |
+| custom_status_id | num | ID für eure selbstdefinierten Statuswerte (falls ihr mehr als die Standard-Status nutzt). |
+| encoded_id | chr | Eine kryptografisch verschlüsselte Version der Ticket-ID für sichere Links. |
+| followup_ids | list | Liste von Ticket-IDs, die als Folge-Ticket (Follow-up) aus diesem Ticket entstanden sind. |
+| ticket_form_id | num | Die ID des Kontaktformulars, das der Kunde beim Einreichen genutzt hat. |
+| brand_id | num | ID eurer Marke (Brand). Wichtig, wenn ihr mehrere Shops/Marken in einem Zendesk verknüpft habt. |
+| allow_channelback | logi | Gibt an, ob Agenten über diesen Kanal antworten dürfen. |
+| allow_attachments | logi | Gibt an, ob Kunden in diesem Ticket Dateianhänge hochladen dürfen. |
+| from_messaging_channel | logi | TRUE, wenn das Ticket aus dem neuen Zendesk Messaging stammt. |
+| support_type | chr | Art des Supports (hier meist agent). |
+| via.channel | chr | Der Eingangskanal des Tickets (z. B. web, email, native_messaging). |
+| via.source.rel | chr | Zeigt an, in welcher Beziehung das Ticket steht (z. B. follow_up, wenn es aus einem geschlossenen Ticket neu eröffnet wurde). |
+| via.source.to.\* | chr | An wen/welche Zieladresse die Originalnachricht ging. |
+| via.source.from.\* | chr/int | Meta-Infos zur Quelle. Spannend ist ticket_id: Hier siehst du die ID des alten Tickets, wenn der Kunde auf ein geschlossenes Ticket geantwortet hat. |
+| satisfaction_rating.score | chr | Die CSAT-Bewertung des Kunden (meist unoffered, offered, good oder bad). |
+
+## read in the resulting dataset
+
+```{r}
+all_tickets <- clean_master(file.path(datadir, "zendesk/all_tickets.rds"))
+```
+
+## mutate date cols and remove unnecessary cols
+
+```{r}
+all_tickets <- all_tickets |>
+  mutate(
+    created_at = ymd_hms(created_at, tz = "UTC"),
+    updated_at = ymd_hms(updated_at, tz = "UTC"), 
+    generated_timestamp = as_datetime(generated_timestamp, tz = "UTC")
+  ) |> 
+  select(
+    -c(
+      url, external_id, organization_id,
+      forum_topic_id, problem_id, has_incidents, due_at, sharing_agreement_ids, ticket_form_id, brand_id, allow_channelback, allow_channelback, satisfaction_rating_score, is_public
+    )
+  )
+```
+
+## extract the bestellnummer where is available
+
+```{r}
+all_tickets <- all_tickets |> 
+  unnest_wider(custom_fields, names_sep = "_")
+
+# Fix: Do the rowwise paste/select outside mutate, then add as a new column
+custom_fields_text <- all_tickets |> 
+  select(starts_with("custom_fields_")) |> 
+  apply(1, function(row) paste(row, collapse = " "))
+
+all_tickets <- all_tickets |> 
+  mutate(
+    bestellnummer = str_extract(
+      custom_fields_text,
+      "(?<=#)\\d{8}|\\b12\\d{6}\\b|\\b\\d{8}\\b"
+    )
+  )
+```
+
+## assign support member id
+
+this part still has to be adjusted and I will work on this tomorrow
+
+```{r}
+# Define mapping of starting digits to names
+id_name_map <- c(
+  "8340805" = "sophia",
+  "8343002" = "maya",
+  "1707477" = "anna",
+  "1860471" = "emily",
+  "2335601" = "diana",
+  "2631143" = "alina",
+  "2741690" = "lea",
+  "3053105" = "kyla"
+)
+
+replace_ids_with_names_partial <- function(x) {
+  x_chr <- as.character(x)
+  # For each pattern, replace if the value starts with the pattern
+  for (pat in names(id_name_map)) {
+    x_chr <- ifelse(
+      !is.na(x_chr) & str_detect(x_chr, paste0("^", pat)),
+      id_name_map[[pat]],
+      x_chr
+    )
+  }
+  # Ensure output is always character, never logical
+  x_chr[is.na(x_chr)] <- NA_character_
+  x_chr
+}
+
+all_tickets |> 
+  select(assignee_id, collaborator_ids) |>
+  # Ensure collaborator_ids is always a list-column of character vectors
+  mutate(
+    collaborator_ids = map(collaborator_ids, ~{
+      ids <- .x
+      if (is.null(ids) || (length(ids) == 1 && is.na(ids))) {
+        # Always return character(0) for empty/missing
+        character(0)
+      } else {
+        replace_ids_with_names_partial(ids)
+      }
+    }),
+    assignee_id = replace_ids_with_names_partial(assignee_id)
+  ) |>
+  unnest_longer(collaborator_ids, values_to = "collaborator_id") |>
+  mutate(collaborator_id = replace_ids_with_names_partial(collaborator_id)) |>
+  distinct()
+```
