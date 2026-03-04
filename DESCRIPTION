@@ -19,5 +19,6 @@ BugReports: https://github.com/andresdies/dieseoR/issues
 Imports: 
     dplyr,
     httr,
+    janitor,
     jsonlite
 RoxygenNote: 7.3.3
