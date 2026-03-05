@@ -20,5 +20,6 @@ Imports:
     dplyr,
     httr,
     janitor,
-    jsonlite
+    jsonlite,
+    lubridate
 RoxygenNote: 7.3.3
