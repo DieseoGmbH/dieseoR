@@ -102,17 +102,40 @@ all_tickets <- all_tickets |>
 all_tickets <- all_tickets |> 
   unnest_wider(custom_fields, names_sep = "_")
 
-# Fix: Do the rowwise paste/select outside mutate, then add as a new column
+# Combine custom_fields columns, description, subject, and raw_subject into one text string per row
 custom_fields_text <- all_tickets |> 
   select(starts_with("custom_fields_")) |> 
   apply(1, function(row) paste(row, collapse = " "))
 
+combined_text <- paste(
+  custom_fields_text,
+  all_tickets$description,
+  all_tickets$subject,
+  all_tickets$raw_subject,
+  sep = " "
+)
+
+# First extraction: as before
+bestellnummer_primary <- str_extract(
+  combined_text,
+  "(?<=#)\\d{8}|\\b12\\d{6}\\b|\\b\\d{8}\\b"
+)
+
+# If bestellnummer_primary is NA, look for any 8-digit number preceded by #
+bestellnummer_secondary <- str_extract(
+  combined_text,
+  "#\\d{8}"
+) |> 
+  str_remove("^#") # remove the leading #
+
+# Remove "12000000" as before
+bestellnummer_primary <- if_else(bestellnummer_primary == "12000000", NA_character_, bestellnummer_primary)
+bestellnummer_secondary <- if_else(bestellnummer_secondary == "12000000", NA_character_, bestellnummer_secondary)
+
+# Use primary if available, otherwise secondary
 all_tickets <- all_tickets |> 
   mutate(
-    bestellnummer = str_extract(
-      custom_fields_text,
-      "(?<=#)\\d{8}|\\b12\\d{6}\\b|\\b\\d{8}\\b"
-    )
+    bestellnummer = coalesce(bestellnummer_primary, bestellnummer_secondary)
   )
 ```
 
@@ -121,21 +144,57 @@ all_tickets <- all_tickets |>
 this part still has to be adjusted and I will work on this tomorrow
 
 ```{r}
-# Define mapping of starting digits to names
+# Define mapping of starting digits to names for assignee/collaborator/follower
 id_name_map <- c(
-  "8340805" = "sophia",
-  "8343002" = "maya",
-  "1707477" = "anna",
-  "1860471" = "emily",
-  "2335601" = "diana",
-  "2631143" = "alina",
-  "2741690" = "lea",
-  "3053105" = "kyla"
+  "8340805378845" = "stephanie",
+  "8343002140829" = "laura",
+  "17074770479005" = "anja",
+  "18604712913053" = "erleta",
+  "23356015505821" = "jessica",
+  "26311427127837" = "altin",
+  "27416907139357" = "AI",
+  "30531051544093" = "anastasia",
+  "22859146419357" = "abulena",
+  "13506489916829" = "johanna",
+  "12207192040477" = "nina",
+  "5832429026205" = "pammys_support"
+)
+
+# Define mapping for group_id (always small letters)
+group_id_name_map <- c(
+  "22911784253981" = "albulena_lena",
+  "26311494547357" = "altin_alina",
+  "30531277961245" = "anastasia_kyla",
+  "17119690258461" = "anja_anna",
+  "23777047107485" = "e_mail",
+  "18604992762525" = "erleta_emily",
+  "23356326562589" = "jessica_diana",
+  "13531713501725" = "johanna_lina",
+  "8342692463389"  = "laura_maya",
+  "30282063790237" = "lea2",
+  "8343306565533"  = "pammys_support2",
+  "8342691778717"  = "stephanie_sophia",
+  "5832422206621"  = "support",
+  "32264914166173" = "support_leitung",
+  "29004950157597" = "n8n_automation",
+  "21323973965213" = "0smmak",
+  "21449217355933" = "bestselling_lieferadresse",
+  "21453222774173" = "oos",
+  "21479307025565" = "schadensanzeige_nachforschungsantrag",
+  "21479331372061" = "stornierung",
+  "21453418350749" = "retourenportal",
+  "21449287544349" = "falschlieferung",
+  "21449298415901" = "reklamation",
+  "21449322420381" = "umtausch",
+  "21449278255901" = "rueckgabe_rechnung",
+  "21453546452893" = "sonstiges",
+  "21453280444701" = "hohe_prio_feedback",
+  "21452898440605" = "meta",
+  "21594391517981" = "paypal_klarna"
 )
 
 replace_ids_with_names_partial <- function(x) {
   x_chr <- as.character(x)
-  # For each pattern, replace if the value starts with the pattern
   for (pat in names(id_name_map)) {
     x_chr <- ifelse(
       !is.na(x_chr) & str_detect(x_chr, paste0("^", pat)),
@@ -143,27 +202,74 @@ replace_ids_with_names_partial <- function(x) {
       x_chr
     )
   }
-  # Ensure output is always character, never logical
   x_chr[is.na(x_chr)] <- NA_character_
   x_chr
 }
 
-all_tickets |> 
-  select(assignee_id, collaborator_ids) |>
-  # Ensure collaborator_ids is always a list-column of character vectors
+replace_group_ids_with_names <- function(x) {
+  x_chr <- as.character(x)
+  x_chr <- ifelse(
+    !is.na(x_chr) & x_chr %in% names(group_id_name_map),
+    group_id_name_map[x_chr],
+    x_chr
+  )
+  x_chr[is.na(x_chr)] <- NA_character_
+  x_chr
+}
+
+all_tickets_id <- all_tickets |> 
   mutate(
     collaborator_ids = map(collaborator_ids, ~{
       ids <- .x
       if (is.null(ids) || (length(ids) == 1 && is.na(ids))) {
-        # Always return character(0) for empty/missing
         character(0)
       } else {
         replace_ids_with_names_partial(ids)
       }
     }),
-    assignee_id = replace_ids_with_names_partial(assignee_id)
+    follower_ids = map(follower_ids, ~{
+      ids <- .x
+      if (is.null(ids) || (length(ids) == 1 && is.na(ids))) {
+        character(0)
+      } else {
+        replace_ids_with_names_partial(ids)
+      }
+    }),
+    assignee_id = replace_ids_with_names_partial(assignee_id),
+    group_id = replace_group_ids_with_names(group_id)
   ) |>
-  unnest_longer(collaborator_ids, values_to = "collaborator_id") |>
-  mutate(collaborator_id = replace_ids_with_names_partial(collaborator_id)) |>
-  distinct()
+  # HIER IST DIE MAGISCHE KORREKTUR: keep_empty = TRUE
+  unnest_longer(collaborator_ids, values_to = "collaborator_id", keep_empty = TRUE) |>
+  mutate(collaborator_id = replace_ids_with_names_partial(collaborator_id))
 ```
+
+```{r}
+all_tickets_selected <- all_tickets_id |>
+  select(-c(
+    email_cc_ids,
+    tags,
+	subject,
+	raw_subject,
+	custom_fields_id,
+    custom_fields_value,
+    custom_status_id,
+    followup_ids,
+    allow_attachments,
+    from_messaging_channel, 
+	generated_timestamp
+	  
+  )) |>
+  mutate(ticket_duration = as.numeric(difftime(updated_at, created_at, units = "mins"))) |>
+  nest(via = starts_with("via")) |>
+  unnest_wider(follower_ids, names_sep = "_")
+```
+
+```{r, fig.width = 20, fig.height= 10}
+ggplot(all_tickets_selected |> filter(!is.na(assignee_id) | status != "new")|> select(-collaborator_id, - follower_ids_1) |> distinct(), aes(x = assignee_id, y = ticket_duration, color = assignee_id)) + 
+geom_boxplot() + 
+facet_wrap(~status, scales = "free") + 
+theme_minimal() + 
+scale_color_viridis_d()
+```
+
+tickets die ohne und die mit Kommentar gelöst
