@@ -50,7 +50,15 @@ get_zendesk_tickets <- function(subdomain, email, api_token, save = TRUE, filena
   while (has_more) {
     message("Lade Cursor-Seite ", page_counter, " ...")
 
-    response <- httr::GET(url, httr::authenticate(user_auth, api_token))
+    # NEU: Der Schutzpanzer gegen Verbindungsabbrüche
+    response <- httr::RETRY(
+      verb = "GET",
+      url = url,
+      config = httr::authenticate(user_auth, api_token),
+      times = 5,        # Probiere es bis zu 5 Mal
+      pause_base = 5,   # Warte 5 Sekunden zwischen den Versuchen
+      quiet = FALSE     # Zeigt in der Konsole an, wenn er einen neuen Versuch startet
+    )
 
     if (httr::status_code(response) == 200) {
       raw_content <- httr::content(response, "text", encoding = "UTF-8")
