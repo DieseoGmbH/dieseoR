@@ -45,8 +45,7 @@ clean_up_zendesk <- function(input) {
     dplyr::select(
       -url, -external_id, -organization_id, -forum_topic_id,
       -problem_id, -has_incidents, -due_at, -sharing_agreement_ids,
-      -ticket_form_id, -brand_id, -allow_channelback,
-      -satisfaction_rating_score, -is_public, -type
+      -ticket_form_id, -brand_id, -allow_channelback, -is_public, -type
     ) |>
     tidyr::unnest_wider(custom_fields, names_sep = "_")
 
