@@ -177,7 +177,8 @@ clean_up_zendesk <- function(input) {
       -generated_timestamp
     ) |>
     dplyr::mutate(
-      ticket_duration = as.numeric(difftime(updated_at, created_at, units = "mins"))
+      ticket_duration_min = as.numeric(difftime(updated_at, created_at, units = "mins")),
+      ticket_duration_day = as.numeric(difftime(updated_at, created_at, units = "days"))
     ) |>
     tidyr::nest(via = dplyr::starts_with("via")) |>
     tidyr::unnest_wider(follower_ids, names_sep = "_")
