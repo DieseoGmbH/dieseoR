@@ -2,36 +2,35 @@
 % Please edit documentation in R/clean_master.R
 \name{clean_master}
 \alias{clean_master}
-\title{Lese Daten ein und führe Standard-Säuberungen durch}
+\title{Lese Daten ein und/oder führe Standard-Säuberungen durch}
 \usage{
 clean_master(input, type = "rds", ...)
 }
 \arguments{
-\item{input}{Character. Der komplette Pfad zur Datei, die eingelesen werden soll.}
+\item{input}{Character oder Data Frame. Der komplette Pfad zur Datei, die eingelesen werden soll, oder ein bereits geladener Data Frame.}
 
-\item{type}{Character. Das Format der Datei. Unterstützt werden "rds" (Standard), "csv", "excel" (oder "xlsx"/"xls").}
+\item{type}{Character. Das Format der Datei, falls ein Pfad übergeben wird. Unterstützt werden "rds" (Standard), "csv", "excel" (oder "xlsx"/"xls").}
 
-\item{...}{Weitere Argumente, die an die jeweilige Einlese-Funktion (z. B. \code{read.csv} oder \code{readxl::read_excel}) weitergegeben werden sollen.}
+\item{...}{Weitere Argumente, die an die jeweilige Einlese-Funktion (z. B. \code{utils::read.csv} oder \code{readxl::read_excel}) weitergegeben werden sollen.}
 }
 \value{
 Ein bereinigter Data Frame (bzw. Tibble).
 }
 \description{
-Diese Funktion nimmt einen Dateipfad, liest den entsprechenden Datensatz
-(RDS, CSV oder Excel) ein und führt direkt Standard-Bereinigungen durch.
+Diese Funktion nimmt entweder einen Dateipfad oder direkt einen Data Frame.
+Wenn ein Pfad übergeben wird, liest sie den entsprechenden Datensatz
+(RDS, CSV oder Excel) ein. Anschließend führt sie direkte Standard-Bereinigungen durch:
 Die Spaltennamen werden mittels \code{janitor::clean_names()} standardisiert.
 Zudem werden alle Textspalten (Character) von überschüssigen Leerzeichen
 befreit und in Kleinbuchstaben umgewandelt.
 }
 \examples{
 \dontrun{
-# RDS-Datei einlesen
+# 1. RDS-Datei einlesen und bereinigen
 df_rds <- clean_master("data/meine_daten.rds")
 
-# CSV-Datei einlesen (mit base R utils::read.csv)
-df_csv <- clean_master("data/rohdaten.csv", type = "csv", sep = ";", dec = ",")
-
-# Excel-Datei einlesen (liest nur das Tabellenblatt "Umsatz")
-df_excel <- clean_master("data/finanzen.xlsx", type = "excel", sheet = "Umsatz")
+# 2. Bereits geladenen Data Frame nur bereinigen
+mein_df <- data.frame(Name_Spalte = c("  Test ", "HALLO  "))
+df_clean <- clean_master(mein_df)
 }
 }
