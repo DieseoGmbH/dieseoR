@@ -171,7 +171,7 @@ clean_up_zendesk <- function(input) {
     ) |>
     tidyr::unnest_longer(collaborator_ids, values_to = "collaborator_id") |>
     dplyr::select(
-      -email_cc_ids, -tags, -subject, -raw_subject,
+      -email_cc_ids, -subject, -raw_subject,
       -custom_fields_id, -custom_fields_value, -custom_status_id,
       -followup_ids, -allow_attachments, -from_messaging_channel,
       -generated_timestamp
