@@ -1,7 +1,7 @@
 Package: dieseoR
 Type: Package
-Title: What the Package Does (Title Case)
-Version: 0.1.4
+Title: dieseoR
+Version: 0.1.5
 Authors@R: c(
     person(
       "Andres", "Godbersen",
@@ -9,8 +9,7 @@ Authors@R: c(
       role = c("aut", "cre")
     )
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
+Description: Functions to update and analyse dieseo-related datasets and create customizable and interactive dashboards.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
