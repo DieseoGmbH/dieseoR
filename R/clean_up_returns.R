@@ -18,7 +18,6 @@
 #' clean_returns <- clean_up_returns(raw_returns_df)
 #' }
 clean_up_returns <- function(df) {
-
   # Sicherheits-Check: Ist der Input überhaupt ein Dataframe?
   if (!is.data.frame(df)) {
     stop("Der Input muss ein Dataframe sein.")
@@ -27,7 +26,6 @@ clean_up_returns <- function(df) {
   cleaned_df <- df |>
     # 1. Allgemeine Basis-Bereinigung (deine eigene Funktion)
     clean_master() |>
-
     # 2. Zeitstempel und numerische Werte richtig formatieren
     dplyr::mutate(
       created_at            = lubridate::ymd_hms(created_at, tz = "UTC"),
@@ -39,14 +37,14 @@ clean_up_returns <- function(df) {
       shipping_cost_applied = as.numeric(shipping_cost_applied),
       shipping_cost         = as.numeric(shipping_cost)
     ) |>
-
     # 3. Unnötige und sensible Spalten (DSGVO) rauswerfen
     dplyr::select(
-      -c(shopify_order_path, full_name, phone, shopify_new_order_path,
-         deleted_at, delivered_at, requested_wrong_items, shopify_order_id,
-         draft_order_id, draft_order_name, tracking_number, barcode_number, email)
+      -c(
+        shopify_order_path, full_name, phone, shopify_new_order_path,
+        deleted_at, delivered_at, requested_wrong_items, shopify_order_id,
+        draft_order_id, draft_order_name, tracking_number, barcode_number, email
+      )
     ) |>
-
     # 4. Text-Felder aufräumen und Land extrahieren
     dplyr::mutate(
       payment_method = stringr::str_replace_all(payment_method, ",\\s+", ","),
@@ -54,5 +52,5 @@ clean_up_returns <- function(df) {
       country = stringr::str_to_lower(stringr::str_trim(stringr::word(address, -1, sep = ",\\s*")))
     )
 
-  return(cleaned_df)
+  cleaned_df
 }
