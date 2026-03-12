@@ -1,18 +1,23 @@
 #' Clean and Map Zendesk Ticket Data
 #'
-#' Cleans a Zendesk tickets data.frame by removing unnecessary columns, mapping assignee and group IDs to names, and optionally saving the cleaned data.
+#' Cleans a Zendesk tickets data.frame by removing unnecessary columns,
+#' mapping assignee and group IDs to names, and optionally
+#' saving the cleaned data.
 #'
 #' @param data A data.frame containing Zendesk ticket data.
-#' @param datadir Character. Directory path where the cleaned file should be saved (if \code{save = TRUE}).
-#' @param save Logical. Whether to save the cleaned data as an RDS file. Default is \code{TRUE}.
-#' @param save_path Character. Full file path for saving the cleaned data. Default is \code{file.path(datadir, "zendesk/zendesk_csv_tickets_cleaned.rds")}.
+#' @param datadir Character. Directory path where the cleaned
+#' file should be saved.
+#' @param save Logical. Whether to save the cleaned data as an RDS file.
+#' Default is \code{TRUE}.
+#' @param save_path Character. Full file path for saving the cleaned data.
+#' Default is \code{file.path(datadir, "zendesk_csv_tickets_cleaned.rds")}.
 #'
 #' @return The cleaned data.frame with mapped assignee and group names.
 #' @export
 clean_zendesk_csv_tickets <- function(
-    data,
-    save = TRUE,
-    save_path = file.path(datadir, "zendesk/zendesk_csv_tickets_cleaned.rds")
+  data,
+  save = TRUE,
+  save_path = file.path(datadir, "zendesk/zendesk_csv_tickets_cleaned.rds") # nolint
 ) {
   id_name_map <- c(
     "8340805378845" = "stephanie",
@@ -71,7 +76,7 @@ clean_zendesk_csv_tickets <- function(
       )
     }
     x_chr[is.na(x_chr)] <- NA_character_
-    return(x_chr)
+    x_chr
   }
 
   replace_groups <- function(x) {
@@ -82,19 +87,20 @@ clean_zendesk_csv_tickets <- function(
       x_chr
     )
     x_chr[is.na(x_chr)] <- NA_character_
-    return(x_chr)
+    x_chr
   }
 
   cleaned <- data |>
-    clean_master() |>
+    clean_master() |> # nolint
     dplyr::select(-c(
-      organization_id, problem_id, brand_id, due_at, satisfaction_score, satisfaction_reason,
-      inbound_sharing_agreement, outbound_sharing_agreement, type, priority, brand, form,
-      custom_status_id, external_id
+      organization_id, problem_id, brand_id, due_at, # nolint
+      satisfaction_score, satisfaction_reason, # nolint
+      inbound_sharing_agreement, outbound_sharing_agreement, # nolint
+      type, priority, brand, form, custom_status_id, external_id # nolint
     )) |>
     dplyr::mutate(
-      assignee_id = replace_ids_partial(assignee_id),
-      group_id = replace_groups(group_id)
+      assignee_id = replace_ids_partial(assignee_id), # nolint
+      group_id = replace_groups(group_id) # nolint
     ) |>
     dplyr::distinct()
 
@@ -102,5 +108,5 @@ clean_zendesk_csv_tickets <- function(
     saveRDS(cleaned, save_path)
   }
 
-  return(cleaned)
+  cleaned
 }

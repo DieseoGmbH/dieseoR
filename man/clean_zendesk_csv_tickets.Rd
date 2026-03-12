@@ -13,15 +13,20 @@ clean_zendesk_csv_tickets(
 \arguments{
 \item{data}{A data.frame containing Zendesk ticket data.}
 
-\item{save}{Logical. Whether to save the cleaned data as an RDS file. Default is \code{TRUE}.}
+\item{save}{Logical. Whether to save the cleaned data as an RDS file.
+Default is \code{TRUE}.}
 
-\item{save_path}{Character. Full file path for saving the cleaned data. Default is \code{file.path(datadir, "zendesk/zendesk_csv_tickets_cleaned.rds")}.}
+\item{save_path}{Character. Full file path for saving the cleaned data.
+Default is \code{file.path(datadir, "zendesk_csv_tickets_cleaned.rds")}.}
 
-\item{datadir}{Character. Directory path where the cleaned file should be saved (if \code{save = TRUE}).}
+\item{datadir}{Character. Directory path where the cleaned
+file should be saved.}
 }
 \value{
 The cleaned data.frame with mapped assignee and group names.
 }
 \description{
-Cleans a Zendesk tickets data.frame by removing unnecessary columns, mapping assignee and group IDs to names, and optionally saving the cleaned data.
+Cleans a Zendesk tickets data.frame by removing unnecessary columns,
+mapping assignee and group IDs to names, and optionally
+saving the cleaned data.
 }
