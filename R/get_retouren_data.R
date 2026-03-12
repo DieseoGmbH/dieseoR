@@ -29,7 +29,6 @@ get_retouren_data <- function(api_key,
                               save = TRUE,
                               filename = "all_returns.rds",
                               merge_existing = TRUE) {
-
   # 1. Lokale Pfade laden (für datadir)
   if (file.exists("~/workspace/local.R")) {
     source("~/workspace/local.R", local = TRUE)
@@ -46,15 +45,14 @@ get_retouren_data <- function(api_key,
 
   # 3. Die Schleife
   while (keep_going) {
-
     # API aufrufen mit RETRY und sauberer query-Übergabe
     response <- httr::RETRY(
       verb = "GET",
       url = base_url,
       query = list(per_page = 100, page = page),
       config = httr::add_headers(`N8N-API-KEY` = api_key),
-      times = 5,        # Probiere es bis zu 5 Mal bei Fehlern
-      pause_base = 3,   # Warte 3 Sekunden zwischen den Fehler-Versuchen
+      times = 5, # Probiere es bis zu 5 Mal bei Fehlern
+      pause_base = 3, # Warte 3 Sekunden zwischen den Fehler-Versuchen
       quiet = TRUE
     )
 
@@ -62,7 +60,7 @@ get_retouren_data <- function(api_key,
     if (httr::status_code(response) != 200) {
       message("Fehler auf Seite ", page, ". Status-Code: ", httr::status_code(response))
       message("Das sagt der Server:")
-      print(httr::content(response, "text", encoding = "UTF-8"))
+      httr::content(response, "text", encoding = "UTF-8")
       stop("Download abgebrochen wegen API-Fehler.")
     }
 
@@ -128,9 +126,8 @@ get_retouren_data <- function(api_key,
     saveRDS(final_returns_df, file = file_path)
     message("Daten erfolgreich gespeichert unter: ", file_path)
 
-    return(final_returns_df)
-
+    final_returns_df
   } else {
-    return(new_returns_df)
+    new_returns_df
   }
 }
