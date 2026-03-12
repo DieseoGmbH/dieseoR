@@ -25,7 +25,6 @@
 #' clean_df <- clean_up_zendesk(raw_tickets_df)
 #' }
 clean_up_zendesk <- function(input) {
-
   # 1. Daten einlesen (nutzt deine clean_master Funktion, falls Pfad übergeben wird)
   if (is.character(input)) {
     df <- clean_master(input)
@@ -158,12 +157,16 @@ clean_up_zendesk <- function(input) {
   df_final <- df |>
     dplyr::mutate(
       # Sichere Abfrage für leere Listen eingebaut!
-      collaborator_ids = purrr::map(collaborator_ids, ~{
-        if (length(.x) == 0 || all(is.na(.x))) return(NA_character_)
+      collaborator_ids = purrr::map(collaborator_ids, ~ {
+        if (length(.x) == 0 || all(is.na(.x))) {
+          return(NA_character_)
+        }
         replace_ids_partial(.x)
       }),
-      follower_ids = purrr::map(follower_ids, ~{
-        if (length(.x) == 0 || all(is.na(.x))) return(NA_character_)
+      follower_ids = purrr::map(follower_ids, ~ {
+        if (length(.x) == 0 || all(is.na(.x))) {
+          return(NA_character_)
+        }
         replace_ids_partial(.x)
       }),
       assignee_id = replace_ids_partial(assignee_id),
@@ -183,5 +186,5 @@ clean_up_zendesk <- function(input) {
     tidyr::nest(via = dplyr::starts_with("via")) |>
     tidyr::unnest_wider(follower_ids, names_sep = "_")
 
-  return(df_final)
+  df_final
 }

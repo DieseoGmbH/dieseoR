@@ -21,5 +21,8 @@ Imports:
     janitor,
     jsonlite,
     lubridate,
-    stringr
+    purrr,
+    stringr,
+    tidyr,
+    tidyselect
 RoxygenNote: 7.3.3
