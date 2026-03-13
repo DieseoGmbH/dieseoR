@@ -90,6 +90,12 @@ clean_zendesk_csv_tickets <- function(
     x_chr
   }
 
+  # Date columns to transform
+  date_cols <- c(
+    "created_at", "updated_at", "assigned_at", "initially_assigned_at",
+    "requester_updated_at", "solved_at"
+  )
+
   cleaned <- data |>
     clean_master() |> # nolint
     dplyr::select(-c(
@@ -101,6 +107,12 @@ clean_zendesk_csv_tickets <- function(
     dplyr::mutate(
       assignee_id = replace_ids_partial(assignee_id), # nolint
       group_id = replace_groups(group_id) # nolint
+    ) |>
+    dplyr::mutate(
+      dplyr::across(
+        dplyr::all_of(date_cols),
+        ~ lubridate::ymd_hms(dplyr::na_if(trimws(.), ""))
+      )
     ) |>
     dplyr::distinct()
 
