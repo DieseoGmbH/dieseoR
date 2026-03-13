@@ -30,32 +30,26 @@
 #' df_clean <- clean_master(mein_df)
 #' }
 clean_master <- function(input, type = "rds", ...) {
-
   # 1. Prüfen, ob input ein Data Frame oder ein Dateipfad ist
   if (is.data.frame(input)) {
     # Wenn es schon ein Data Frame ist, einfach übernehmen und Einlesen überspringen
     df <- input
-
   } else if (is.character(input)) {
     # 2. Wenn es ein Pfad ist, Datei einlesen abhängig vom Typ
     file_type <- tolower(type)
 
     if (file_type == "rds") {
       df <- readRDS(input)
-
     } else if (file_type == "csv") {
       # Nutzt base R (utils) anstelle von readr
       df <- utils::read.csv(input, ...)
-
     } else if (file_type %in% c("excel", "xlsx", "xls")) {
       # Benötigt weiterhin das readxl-Package
       if (!requireNamespace("readxl", quietly = TRUE)) stop("Bitte installiere das 'readxl' Paket.")
       df <- readxl::read_excel(input, ...)
-
     } else {
       stop("Nicht unterstützter Dateityp. Bitte 'rds', 'csv' oder 'excel' verwenden.")
     }
-
   } else {
     stop("'input' muss entweder ein Dateipfad (Character) oder ein Data Frame sein.")
   }
@@ -70,5 +64,5 @@ clean_master <- function(input, type = "rds", ...) {
       )
     )
 
-  return(df_clean)
+  df_clean
 }
