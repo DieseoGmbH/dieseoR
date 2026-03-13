@@ -29,7 +29,6 @@
 #' )
 #' }
 get_zendesk_tickets <- function(subdomain, email, api_token, save = TRUE, filename = "all_tickets.rds", merge_existing = TRUE) {
-
   # 1. Lokale Pfade laden
   if (file.exists("~/workspace/local.R")) {
     source("~/workspace/local.R", local = TRUE)
@@ -55,9 +54,9 @@ get_zendesk_tickets <- function(subdomain, email, api_token, save = TRUE, filena
       verb = "GET",
       url = url,
       config = httr::authenticate(user_auth, api_token),
-      times = 5,        # Probiere es bis zu 5 Mal
-      pause_base = 5,   # Warte 5 Sekunden zwischen den Versuchen
-      quiet = FALSE     # Zeigt in der Konsole an, wenn er einen neuen Versuch startet
+      times = 5, # Probiere es bis zu 5 Mal
+      pause_base = 5, # Warte 5 Sekunden zwischen den Versuchen
+      quiet = FALSE # Zeigt in der Konsole an, wenn er einen neuen Versuch startet
     )
 
     if (httr::status_code(response) == 200) {
@@ -70,7 +69,6 @@ get_zendesk_tickets <- function(subdomain, email, api_token, save = TRUE, filena
 
       page_counter <- page_counter + 1
       Sys.sleep(1)
-
     } else {
       stop("Fehler auf Seite ", page_counter, " - Statuscode: ", httr::status_code(response))
     }
@@ -114,10 +112,9 @@ get_zendesk_tickets <- function(subdomain, email, api_token, save = TRUE, filena
     saveRDS(final_tickets_df, file = file_path)
     message("Daten erfolgreich gespeichert unter: ", file_path)
 
-    return(final_tickets_df)
-
+    final_tickets_df
   } else {
     # Wenn nicht gespeichert werden soll, gib einfach die neu geladenen zurück
-    return(new_tickets_df)
+    new_tickets_df
   }
 }
