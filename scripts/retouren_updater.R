@@ -1,0 +1,6 @@
+source("~/workspace/local.R")
+source("~/workspace/secrets.R")
+library(dieseoR)
+raw_returns <- get_retouren_data(api_key = "$2a$12$Szzdk0bcUkr3dvKCNgoRPuafBwJf3mhH8i1Os9DYzJBkJjXBevUSS", base_url = "https://retoure-api.pammys.com/api/all-returns?per_page=100")
+clean_returns <- clean_up_returns(raw_returns)
+saveRDS(clean_returns, file = file.path(datadir, "returns/all_returns_cleaned.rds"))
