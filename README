@@ -1,3 +1,80 @@
-How to use ~local.R:
+***
 
-In local.R there are two distinct directions given. They all start from the main branch and give the direction of data storage and where there are the scripts connected to git.
+# dieseoR: Pammys Data Pipeline & ETL-Backend
+
+## 1. Über das Projekt
+Das **dieseoR** R-Package ist das zentrale Backend und die ETL-Engine (Extract, Transform, Load) für die Daten-Infrastruktur des Schuhverkaufsunternehmens "Pammys". 
+
+Das Package verbindet sich mit verschiedenen Drittanbieter-APIs (Zendesk, PayPal, Custom Retourenportal, Trustpilot), extrahiert die Rohdaten, bereinigt sie nach einheitlichen Business-Regeln und speichert sie lokal zwischen. Diese aufbereiteten `.rds`-Dateien bilden das performante Fundament für das interaktive Pammys Shiny-Dashboard.
+
+## 2. Systemarchitektur & Verzeichnisse
+Das Projekt baut auf einer strikten Trennung von ETL-Logik, UI und lokaler Datenspeicherung auf:
+
+* `~/git/dieseoR/`: Dieses Package. Enthält isolierte API- und Cleaning-Funktionen.
+* `~/git/dashboard/`: Das Shiny-Dashboard (Frontend) und der Cronjob (`update_dashboard.R`).
+* `~/data/`: Zentraler, lokaler Datenspeicher für die verarbeiteten `.rds`-Dateien.
+
+## 3. Installation & Setup
+Da es sich um ein proprietäres, lokales Package handelt, wird es während der Entwicklung am besten über `devtools` geladen.
+
+```R
+# Package in die R-Session laden
+devtools::load_all("~/git/dieseoR")
+```
+
+### Umgebungsvariablen (.Renviron)
+Das Package erfordert zwingend API-Keys, die aus Sicherheitsgründen **niemals** im Code gespeichert werden dürfen. Diese müssen in der lokalen `.Renviron`-Datei hinterlegt werden (`usethis::edit_r_environ()`):
+
+```text
+PAYPAL_CLIENT_ID=deine_client_id
+PAYPAL_SECRET=dein_secret
+PAYPAL_BASE_URL=https://api-m.paypal.com
+
+# Platzhalter für weitere APIs (z.B. N8N, Zendesk Token)
+```
+
+## 4. Der ETL-Workflow & Core Functions
+
+Das Package teilt sich in drei funktionale Bereiche auf: Extraktion, Transformation und das Laden der Daten.
+
+### A. Extract (API-Aufrufe)
+Robuste Funktionen zum Abrufen von Daten. Diese Funktionen nutzen `httr::RETRY` für automatisches Rate-Limiting und Adaptive Chunking für große Datenmengen.
+
+```R
+# Beispiel: PayPal Transaktionen abrufen
+token <- get_paypal_token()
+df_paypal <- get_paypal_transactions(
+  token = token, 
+  start_date = Sys.Date() - 7, 
+  end_date = Sys.Date()
+)
+```
+
+### B. Transform (Datenbereinigung)
+Das Package nutzt einen universellen "Vorwäscher" (`clean_master()`), der Spaltennamen standardisiert und Textfelder formatiert. Darauf bauen spezifische Transformations-Funktionen auf:
+
+```R
+# Beispiel 1: Rohe Retouren-Daten bereinigen (inkl. Datums- und Adress-Parsing)
+df_returns_clean <- clean_up_returns(df_raw_returns)
+
+# Beispiel 2: Zendesk-Tickets bereinigen (inkl. ID-Mapping auf Agenten-Namen)
+df_zendesk_clean <- clean_up_zendesk("data/zendesk/all_tickets.rds")
+```
+
+### C. Load (Upsert-Logik)
+Anstatt Datenbanken jeden Tag komplett neu aufzubauen, nutzt das Package intelligente Inkrementelle Updates (Upserts).
+
+```R
+# Beispiel: PayPal Datenbank aktualisieren
+# Liest die bestehende Datei, zieht nur die fehlenden Tage nach und wirft Duplikate heraus.
+update_paypal_data(datadir = "~/data")
+```
+
+## 5. Coding Conventions für Contributor
+Wer Code zu `dieseoR` beisteuern möchte, muss sich an folgende Regeln halten:
+1.  **Tidyverse:** Nutze konsequent das `tidyverse` (`dplyr`, `tidyr`, `stringr`, `lubridate`).
+2.  **Native Pipe:** Verwende den nativen R-Pipe-Operator `|>` anstelle von `%>%`.
+3.  **Namespace-Routing:** Vermeide `library()` Aufrufe in Funktionen. Nutze stattdessen das präzise Routing (z.B. `dplyr::mutate()`).
+4.  **Roxygen2:** Jede neue Funktion muss vollständig mit `@title`, `@description`, `@param`, `@return` und `@export` dokumentiert sein.
+
+***
