@@ -1,5 +1,3 @@
-***
-
 # dieseoR: Pammys Data Pipeline & ETL-Backend
 
 ## 1. Über das Projekt
@@ -76,5 +74,3 @@ Wer Code zu `dieseoR` beisteuern möchte, muss sich an folgende Regeln halten:
 2.  **Native Pipe:** Verwende den nativen R-Pipe-Operator `|>` anstelle von `%>%`.
 3.  **Namespace-Routing:** Vermeide `library()` Aufrufe in Funktionen. Nutze stattdessen das präzise Routing (z.B. `dplyr::mutate()`).
 4.  **Roxygen2:** Jede neue Funktion muss vollständig mit `@title`, `@description`, `@param`, `@return` und `@export` dokumentiert sein.
-
-***
