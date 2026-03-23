@@ -2,7 +2,7 @@
 % Please edit documentation in R/get_paypal_transactions.R
 \name{get_paypal_transactions}
 \alias{get_paypal_transactions}
-\title{Fetch PayPal Transactions with Adaptive Chunking}
+\title{Fetch PayPal Transactions with Recursive Bisection (Divide & Conquer)}
 \usage{
 get_paypal_transactions(
   token,
@@ -25,13 +25,7 @@ A flattened `data.frame` containing all transaction details.
 }
 \description{
 Extracts transaction details from the PayPal Reporting API.
-Uses an adaptive approach: attempts to fetch a full day first. Only if the
-daily limit (10,000 items) is breached, it dynamically splits that specific
-day into 4-hour chunks. Drastically reduces API calls and prevents 429 errors.
-}
-\examples{
-\dontrun{
-token <- get_paypal_token()
-df_paypal <- get_paypal_transactions(token, Sys.Date() - 30, Sys.Date())
-}
+Uses true recursion: if a timeframe exceeds the 10,000 items limit, it
+dynamically cuts the timeframe in half over and over again until the chunks
+are small enough for the API to process.
 }
