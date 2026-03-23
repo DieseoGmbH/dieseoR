@@ -16,6 +16,7 @@ LazyData: true
 URL: https://github.com/andresdies/dieseoR
 BugReports: https://github.com/andresdies/dieseoR/issues
 Imports: 
+    devtools,
     dplyr,
     httr,
     janitor,
