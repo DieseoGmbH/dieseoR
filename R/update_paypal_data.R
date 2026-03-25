@@ -5,6 +5,8 @@
 #' deduplizierten Upsert durch.
 #'
 #' @param datadir Character. Der Pfad zum zentralen Datenverzeichnis (`~/data/`).
+#' @param data_path Character. Der direkte Dateipfad zur `.rds` Datei.
+#' Überschreibt standardmäßig die Konstruktion aus `datadir`.
 #'
 #' @return Invisible TRUE bei Erfolg.
 #' @export
@@ -12,19 +14,23 @@
 #' @importFrom dplyr bind_rows distinct filter
 #'
 #' @examples \dontrun{
+#' # Standardaufruf (nutzt ~/data/paypal/...)
 #' update_paypal_data(datadir = "~/data")
+#'
+#' # Spezifischer Aufruf aus dem Shiny-Verzeichnis
+#' update_paypal_data(data_path = "data/all_paypal_transactions.rds")
 #' }
-update_paypal_data <- function(datadir) {
-  paypal_file <- file.path(datadir, "paypal", "all_paypal_transactions.rds")
+update_paypal_data <- function(datadir = "~/data",
+                               data_path = file.path(datadir, "paypal", "all_paypal_transactions.rds")) {
   token <- get_paypal_token()
 
   # 1. Pruefen, ob die Historie ueberhaupt existiert
-  if (!file.exists(paypal_file)) {
-    stop("Keine Master-RDS gefunden. Bitte fuehre zuerst den Initial Load aus.")
+  if (!file.exists(data_path)) {
+    stop(sprintf("Keine Master-RDS unter '%s' gefunden. Bitte fuehre zuerst den Initial Load aus.", data_path), call. = FALSE)
   }
 
-  message("Lese bestehende Datenbank ein...")
-  df_existing <- readRDS(paypal_file)
+  message(sprintf("Lese bestehende Datenbank ein aus: %s", data_path))
+  df_existing <- readRDS(data_path)
 
   # 2. Startdatum fuer den API-Call ermitteln
   # PayPal speichert das Datum meist in 'transaction_info.transaction_initiation_date'
@@ -74,7 +80,7 @@ update_paypal_data <- function(datadir) {
   }
 
   # 5. Datenbank ueberschreiben
-  saveRDS(df_combined, paypal_file)
+  saveRDS(df_combined, data_path)
   message(sprintf(
     "Upsert erfolgreich! %s neue/geupdatete Datensaetze integriert. Gesamt: %s",
     nrow(df_new), nrow(df_combined)

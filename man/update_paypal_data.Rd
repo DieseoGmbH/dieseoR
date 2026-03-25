@@ -4,10 +4,16 @@
 \alias{update_paypal_data}
 \title{Inkrementelles Update der PayPal Daten (Upsert)}
 \usage{
-update_paypal_data(datadir)
+update_paypal_data(
+  datadir = "~/data",
+  data_path = file.path(datadir, "paypal", "all_paypal_transactions.rds")
+)
 }
 \arguments{
 \item{datadir}{Character. Der Pfad zum zentralen Datenverzeichnis (`~/data/`).}
+
+\item{data_path}{Character. Der direkte Dateipfad zur `.rds` Datei.
+Überschreibt standardmäßig die Konstruktion aus `datadir`.}
 }
 \value{
 Invisible TRUE bei Erfolg.
@@ -19,6 +25,10 @@ deduplizierten Upsert durch.
 }
 \examples{
 \dontrun{
+# Standardaufruf (nutzt ~/data/paypal/...)
 update_paypal_data(datadir = "~/data")
+
+# Spezifischer Aufruf aus dem Shiny-Verzeichnis
+update_paypal_data(data_path = "data/all_paypal_transactions.rds")
 }
 }
