@@ -2,14 +2,16 @@
 % Please edit documentation in R/get_shopify_data.R
 \name{get_shopify_data}
 \alias{get_shopify_data}
-\title{Fetch Data from Shopify API (with Pagination)}
+\title{Fetch Data from Shopify API (with Pagination & Checkpointing)}
 \usage{
 get_shopify_data(
   shop_url = "pummmys.myshopify.com",
   api_key,
   endpoint = "orders",
   api_version = "2024-01",
-  limit = 250
+  limit = 250,
+  fields = NULL,
+  checkpoint_dir = NULL
 )
 }
 \arguments{
@@ -22,21 +24,16 @@ get_shopify_data(
 \item{api_version}{Character. Die zu verwendende Shopify API-Version (Standard: "2024-01").}
 
 \item{limit}{Integer. Anzahl der Eintraege pro Seite (Maximal 250 fuer Shopify).}
+
+\item{fields}{Character. Optional. Kommaseparierte Liste der gewuenschten Spalten (z.B. "id,created_at,total_price").}
+
+\item{checkpoint_dir}{Character. Optional. Lokaler Pfad zur Zwischenspeicherung (z.B. "~/data/").}
 }
 \value{
-Ein tibble mit allen geparsten Daten ueber alle Seiten hinweg.
+Ein tibble mit allen geparsten Daten. Bei einem HTTP 401 Abbruch werden die bis dahin geladenen Daten zurueckgegeben.
 }
 \description{
 Ruft Daten von einem spezifizierten Shopify API-Endpunkt ab und paginiert
-automatisch durch alle verfuegbaren Seiten (Cursor-basierte Paginierung via HTTP Link Header).
-Nutzt `httr::RETRY`, um Rate-Limiting abzufangen.
-}
-\examples{
-\dontrun{
-# Holt ALLE Bestellungen (in 250er-Schritten)
-shopify_orders <- get_shopify_data(
-  api_key = my_shopify_token,
-  endpoint = "orders"
-)
-}
+automatisch durch alle verfuegbaren Seiten. Integriert Feld-Filterung zur Performance-Optimierung
+und speichert Zwischenstaende, um Datenverlust bei abgelaufenen Tokens (HTTP 401) zu vermeiden.
 }

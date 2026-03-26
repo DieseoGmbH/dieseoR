@@ -16,6 +16,7 @@ LazyData: true
 URL: https://github.com/andresdies/dieseoR
 BugReports: https://github.com/andresdies/dieseoR/issues
 Imports: 
+    bigrquery,
     devtools,
     dplyr,
     httr,
@@ -26,5 +27,7 @@ Imports:
     readxl,
     stringr,
     tidyr,
-    tidyselect
+    tidyselect,
+    tidytext,
+    udpipe
 RoxygenNote: 7.3.3
