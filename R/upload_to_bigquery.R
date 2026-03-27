@@ -66,7 +66,8 @@ upload_to_bigquery <- function(data,
         x = tb,
         values = data,
         create_disposition = "CREATE_IF_NEEDED",
-        write_disposition = write_disposition
+        write_disposition = write_disposition,
+        billing = project_id # <--- Zur Sicherheit ergänzen
       )
 
       message("Upload erfolgreich abgeschlossen!")

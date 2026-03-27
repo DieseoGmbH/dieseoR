@@ -2,7 +2,7 @@
 % Please edit documentation in R/get_shopify_data.R
 \name{get_shopify_data}
 \alias{get_shopify_data}
-\title{Fetch Data from Shopify API (with Pagination & Checkpointing)}
+\title{Fetch Data from Shopify API (with Pagination and Checkpointing)}
 \usage{
 get_shopify_data(
   shop_url = "pummmys.myshopify.com",
@@ -10,30 +10,30 @@ get_shopify_data(
   endpoint = "orders",
   api_version = "2024-01",
   limit = 250,
-  fields = NULL,
-  checkpoint_dir = NULL
+  chunk_size = 100,
+  temp_dir = "data/shopify_temp"
 )
 }
 \arguments{
-\item{shop_url}{Character. Die Shopify-Shop-URL (Standard: "pummmys.myshopify.com").}
+\item{shop_url}{Character. Die Shopify-Shop-URL.}
 
-\item{api_key}{Character. Das Shopify Admin API Access Token (generiert via OAuth).}
+\item{api_key}{Character. Das Shopify Admin API Access Token.}
 
-\item{endpoint}{Character. Der gewuenschte API-Endpunkt (z.B. "orders", "products").}
+\item{endpoint}{Character. Der gewuenschte API-Endpunkt.}
 
-\item{api_version}{Character. Die zu verwendende Shopify API-Version (Standard: "2024-01").}
+\item{api_version}{Character. Die zu verwendende Shopify API-Version.}
 
-\item{limit}{Integer. Anzahl der Eintraege pro Seite (Maximal 250 fuer Shopify).}
+\item{limit}{Integer. Anzahl der Eintraege pro Seite (Max: 250).}
 
-\item{fields}{Character. Optional. Kommaseparierte Liste der gewuenschten Spalten (z.B. "id,created_at,total_price").}
+\item{chunk_size}{Integer. Nach wie vielen Seiten soll ein Zwischenstand auf der Festplatte gespeichert werden?}
 
-\item{checkpoint_dir}{Character. Optional. Lokaler Pfad zur Zwischenspeicherung (z.B. "~/data/").}
+\item{temp_dir}{Character. Pfad zum Verzeichnis, in dem die Chunks gespeichert werden.}
 }
 \value{
-Ein tibble mit allen geparsten Daten. Bei einem HTTP 401 Abbruch werden die bis dahin geladenen Daten zurueckgegeben.
+Ein tibble mit allen geparsten Daten.
 }
 \description{
-Ruft Daten von einem spezifizierten Shopify API-Endpunkt ab und paginiert
-automatisch durch alle verfuegbaren Seiten. Integriert Feld-Filterung zur Performance-Optimierung
-und speichert Zwischenstaende, um Datenverlust bei abgelaufenen Tokens (HTTP 401) zu vermeiden.
+Ruft Daten von einem spezifizierten Shopify API-Endpunkt ab.
+Nutzt Chunking, um bei grossen Datenmengen (z. B. > 100.000 Bestellungen) den Arbeitsspeicher
+zu schonen. Speichert Zwischenstaende als .rds-Dateien.
 }

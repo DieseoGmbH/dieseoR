@@ -1,20 +1,20 @@
-#' @title Fetch Data from Shopify API (with Pagination & Checkpointing)
+#' @title Fetch Data from Shopify API (with Pagination and Checkpointing)
 #'
-#' @description Ruft Daten von einem spezifizierten Shopify API-Endpunkt ab und paginiert
-#' automatisch durch alle verfuegbaren Seiten. Integriert Feld-Filterung zur Performance-Optimierung
-#' und speichert Zwischenstaende, um Datenverlust bei abgelaufenen Tokens (HTTP 401) zu vermeiden.
+#' @description Ruft Daten von einem spezifizierten Shopify API-Endpunkt ab.
+#' Nutzt Chunking, um bei grossen Datenmengen (z. B. > 100.000 Bestellungen) den Arbeitsspeicher
+#' zu schonen. Speichert Zwischenstaende als .rds-Dateien.
 #'
-#' @param shop_url Character. Die Shopify-Shop-URL (Standard: "pummmys.myshopify.com").
-#' @param api_key Character. Das Shopify Admin API Access Token (generiert via OAuth).
-#' @param endpoint Character. Der gewuenschte API-Endpunkt (z.B. "orders", "products").
-#' @param api_version Character. Die zu verwendende Shopify API-Version (Standard: "2024-01").
-#' @param limit Integer. Anzahl der Eintraege pro Seite (Maximal 250 fuer Shopify).
-#' @param fields Character. Optional. Kommaseparierte Liste der gewuenschten Spalten (z.B. "id,created_at,total_price").
-#' @param checkpoint_dir Character. Optional. Lokaler Pfad zur Zwischenspeicherung (z.B. "~/data/").
+#' @param shop_url Character. Die Shopify-Shop-URL.
+#' @param api_key Character. Das Shopify Admin API Access Token.
+#' @param endpoint Character. Der gewuenschte API-Endpunkt.
+#' @param api_version Character. Die zu verwendende Shopify API-Version.
+#' @param limit Integer. Anzahl der Eintraege pro Seite (Max: 250).
+#' @param chunk_size Integer. Nach wie vielen Seiten soll ein Zwischenstand auf der Festplatte gespeichert werden?
+#' @param temp_dir Character. Pfad zum Verzeichnis, in dem die Chunks gespeichert werden.
 #'
-#' @return Ein tibble mit allen geparsten Daten. Bei einem HTTP 401 Abbruch werden die bis dahin geladenen Daten zurueckgegeben.
+#' @return Ein tibble mit allen geparsten Daten.
 #'
-#' @importFrom httr RETRY add_headers content stop_for_status headers status_code
+#' @importFrom httr RETRY add_headers content stop_for_status headers
 #' @importFrom jsonlite fromJSON
 #' @importFrom dplyr as_tibble bind_rows
 #' @importFrom stringr str_c str_detect str_split str_extract
@@ -24,69 +24,62 @@ get_shopify_data <- function(shop_url = "pummmys.myshopify.com",
                              endpoint = "orders",
                              api_version = "2024-01",
                              limit = 250,
-                             fields = NULL,
-                             checkpoint_dir = NULL) {
-  if (missing(api_key) || api_key == "") {
-    stop("Fehler: Es muss ein gueltiger api_key uebergeben werden.")
+                             chunk_size = 100,
+                             temp_dir = "data/shopify_temp") {
+  if (missing(api_key) || api_key == "") stop("Fehler: api_key fehlt.")
+
+  # Temporaeres Verzeichnis erstellen, falls es nicht existiert
+  if (!dir.exists(temp_dir)) {
+    dir.create(temp_dir, recursive = TRUE)
+    message("Verzeichnis '", temp_dir, "' fuer Zwischenspeicher erstellt.")
   }
 
-  # Basis-URL konstruieren
   current_url <- stringr::str_c("https://", shop_url, "/admin/api/", api_version, "/", endpoint, ".json?limit=", limit)
-
-  # Spalten-Filterung (erhoeht Performance enorm)
-  if (!is.null(fields)) {
-    current_url <- stringr::str_c(current_url, "&fields=", fields)
-    message("Spaltenfilter aktiv: ", fields)
-  }
 
   if (endpoint == "orders") {
     current_url <- stringr::str_c(current_url, "&status=any")
+    message("Endpunkt 'orders' erkannt: Rufe ALLE historischen Daten ab.")
   }
 
   all_data_list <- list()
   has_next_page <- TRUE
   page_counter <- 1
+  chunk_counter <- 1
 
-  message("Starte Datenabruf vom Endpunkt '", endpoint, "'...")
+  message("Starte Datenabruf. Speichere Zwischenstand alle ", chunk_size, " Seiten.")
 
   while (has_next_page) {
     message("Lade Seite ", page_counter, "...")
 
-    # API-Call
     response <- httr::RETRY(
-      verb = "GET",
-      url = current_url,
-      httr::add_headers(`X-Shopify-Access-Token` = api_key),
-      times = 3,
-      pause_base = 1,
-      pause_cap = 60
+      verb = "GET", url = current_url, httr::add_headers(`X-Shopify-Access-Token` = api_key),
+      times = 5, pause_base = 2, pause_cap = 60 # Retry-Logik etwas robuster gemacht
     )
 
-    # Graceful Exit bei Token-Ablauf (401)
-    if (httr::status_code(response) == 401) {
-      warning("HTTP 401 Unauthorized auf Seite ", page_counter, ". Token ist vermutlich abgelaufen. Schleife wird abgebrochen, bisherige Daten werden gerettet!")
-      break
-    }
+    httr::stop_for_status(response, task = stringr::str_c("Fetch page ", page_counter))
 
-    # Normales Fehlerhandling fuer andere HTTP-Fehler
-    httr::stop_for_status(response, task = stringr::str_c("Fetch data from Shopify page ", page_counter))
-
-    # JSON Content parsen
     raw_content <- httr::content(response, as = "text", encoding = "UTF-8")
     parsed_data <- jsonlite::fromJSON(raw_content, flatten = TRUE)
 
     current_tibble <- parsed_data[[endpoint]] |> dplyr::as_tibble()
     all_data_list <- append(all_data_list, list(current_tibble))
 
-    # Optionales Checkpointing alle 500 Seiten
-    if (!is.null(checkpoint_dir) && (page_counter %% 500 == 0)) {
-      checkpoint_path <- file.path(checkpoint_dir, stringr::str_c("shopify_", endpoint, "_checkpoint_", page_counter, ".rds"))
-      temp_dataset <- all_data_list |> dplyr::bind_rows()
-      saveRDS(temp_dataset, checkpoint_path)
-      message("Checkpoint gespeichert unter: ", checkpoint_path)
+    # CHECKPOINT-LOGIK: Arbeitsspeicher leeren und Daten sichern
+    if (page_counter %% chunk_size == 0) {
+      chunk_file <- file.path(temp_dir, stringr::str_c("shopify_", endpoint, "_chunk_", chunk_counter, ".rds"))
+      message("\n---> Speichere Chunk ", chunk_counter, " in ", chunk_file)
+
+      chunk_data <- all_data_list |> dplyr::bind_rows()
+      saveRDS(chunk_data, file = chunk_file)
+
+      # RAM massiv entlasten!
+      all_data_list <- list()
+      gc() # Garbage Collector zwingen, den Speicher freizugeben
+
+      chunk_counter <- chunk_counter + 1
+      Sys.sleep(1) # Kurze Atempause fuer die Shopify API
     }
 
-    # Paginierung pruefen
     link_header <- httr::headers(response)$link
 
     if (!is.null(link_header) && stringr::str_detect(link_header, 'rel="next"')) {
@@ -99,14 +92,25 @@ get_shopify_data <- function(shop_url = "pummmys.myshopify.com",
     }
   }
 
-  # Finale Daten zusammenfuehren
-  if (length(all_data_list) == 0) {
-    message("Keine Daten geladen.")
-    return(dplyr::tibble())
+  # Den verbleibenden Rest (der nicht genau durch chunk_size teilbar war) speichern
+  if (length(all_data_list) > 0) {
+    chunk_file <- file.path(temp_dir, stringr::str_c("shopify_", endpoint, "_chunk_", chunk_counter, ".rds"))
+    message("\n---> Speichere finalen Chunk ", chunk_counter, " in ", chunk_file)
+    chunk_data <- all_data_list |> dplyr::bind_rows()
+    saveRDS(chunk_data, file = chunk_file)
   }
 
-  final_dataset <- all_data_list |> dplyr::bind_rows()
-  message("Fertig! Erfolgreich ", nrow(final_dataset), " Eintraege aus ", page_counter - 1, " Seiten extrahiert.")
+  # Alle Chunks von der Festplatte laden und zu einem finalen Tibble mergen
+  message("Lade alle gesicherten Chunks zusammen...")
+  all_files <- list.files(temp_dir, pattern = stringr::str_c("shopify_", endpoint, "_chunk_"), full.names = TRUE)
+
+  final_dataset <- lapply(all_files, readRDS) |>
+    dplyr::bind_rows()
+
+  message("Fertig! Erfolgreich ", nrow(final_dataset), " Eintreage geladen.")
+
+  # Optional: Temp-Files aufraeumen (auskommentiert zur Sicherheit)
+  # unlink(all_files)
 
   return(final_dataset)
 }
