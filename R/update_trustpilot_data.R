@@ -65,7 +65,7 @@ update_trustpilot_data <- function(datadir = "~/data",
   }
 
   # 5. Daten anhaengen und deduplizieren (Upsert-Logik)
-  df_combined <- dplyr::bind_rows(df_existing, df_new_filtered)
+  df_combined <- dplyr::bind_rows(df_new_filtered, df_existing)
 
   if ("review_id" %in% names(df_combined)) {
     df_combined <- df_combined |>

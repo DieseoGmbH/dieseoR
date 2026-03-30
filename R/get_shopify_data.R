@@ -25,22 +25,29 @@ get_shopify_data <- function(shop_url = "pummmys.myshopify.com",
                              api_version = "2024-01",
                              limit = 250,
                              chunk_size = 100,
-                             temp_dir = "data/shopify_temp") {
+                             temp_dir = "~/data/shopify/shopify_temp",
+                             updated_at_min = NULL) { # <-- NEUER PARAMETER
+
   if (missing(api_key) || api_key == "") stop("Fehler: api_key fehlt.")
 
   # Temporaeres Verzeichnis erstellen, falls es nicht existiert
   if (!dir.exists(temp_dir)) {
     dir.create(temp_dir, recursive = TRUE)
-    message("Verzeichnis '", temp_dir, "' fuer Zwischenspeicher erstellt.")
   }
 
   current_url <- stringr::str_c("https://", shop_url, "/admin/api/", api_version, "/", endpoint, ".json?limit=", limit)
 
   if (endpoint == "orders") {
     current_url <- stringr::str_c(current_url, "&status=any")
-    message("Endpunkt 'orders' erkannt: Rufe ALLE historischen Daten ab.")
   }
 
+  # NEUE LOGIK: Wenn ein Datum uebergeben wurde, hange es an die URL an
+  if (!is.null(updated_at_min)) {
+    current_url <- stringr::str_c(current_url, "&updated_at_min=", updated_at_min)
+    message("Inkrementeller Load aktiv: Filtere ab ", updated_at_min)
+  }
+
+  # ... ab hier geht dein bestehender Code mit der while(has_next_page) Schleife weiter ...
   all_data_list <- list()
   has_next_page <- TRUE
   page_counter <- 1
