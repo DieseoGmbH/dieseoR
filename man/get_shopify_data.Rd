@@ -11,7 +11,8 @@ get_shopify_data(
   api_version = "2024-01",
   limit = 250,
   chunk_size = 100,
-  temp_dir = "data/shopify_temp"
+  temp_dir = "~/data/shopify/shopify_temp",
+  updated_at_min = NULL
 )
 }
 \arguments{

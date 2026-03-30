@@ -67,7 +67,8 @@ update_paypal_data <- function(datadir = "~/data",
   }
 
   # 4. Daten anhaengen und deduplizieren (Der eigentliche Upsert)
-  df_combined <- dplyr::bind_rows(df_existing, df_new)
+  # Richtig: Das NEUE Update steht oben, distinct() behält die neue Zeile
+  df_combined <- dplyr::bind_rows(df_new, df_existing)
 
   if ("transaction_info.transaction_id" %in% names(df_combined)) {
     # Wir behalten bei Duplikaten die aktuellste Zeile (aus df_new), da sich
