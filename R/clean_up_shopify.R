@@ -41,6 +41,7 @@ clean_up_shopify <- function(shopify_orders) {
       created_at,
       source_name,
       financial_status,
+      tags,
       fulfillment_status,
       customer_id,
       shipping_address_country,
