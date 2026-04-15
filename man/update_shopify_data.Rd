@@ -2,34 +2,28 @@
 % Please edit documentation in R/update_shopify_data.R
 \name{update_shopify_data}
 \alias{update_shopify_data}
-\title{Inkrementelles Update der Shopify Item-Daten (Upsert)}
+\title{Inkrementelles Update der Shopify Daten (Upsert)}
 \usage{
 update_shopify_data(
-  datadir = "~/data/shopify",
+  datadir = "~/data",
   endpoint = "orders",
-  data_path = file.path(datadir, "shopify", "all_shopify_items.rds"),
-  api_key
+  api_key,
+  data_path = NULL
 )
 }
 \arguments{
 \item{datadir}{Character. Der Pfad zum zentralen Datenverzeichnis (`~/data/`).}
 
-\item{endpoint}{Character. Welcher Endpunkt aktualisiert werden soll (Standard: "orders").}
-
-\item{data_path}{Character. Der direkte Dateipfad zur `.rds` Datei (Standard: Item-Level Datei).}
+\item{endpoint}{Character. Welcher Endpunkt aktualisiert werden soll ("orders", "checkouts", "products", "customers").}
 
 \item{api_key}{Character. Das Shopify Admin API Access Token.}
+
+\item{data_path}{Optional. Manueller Pfad zur RDS-Datei. Wird sonst automatisch berechnet.}
 }
 \value{
 Invisible TRUE bei Erfolg.
 }
 \description{
-Liest die bestehende Shopify `.rds` Datei (Item-Level) ein, ermittelt das
-aktuellste `updated_at` Datum, zieht neue/geänderte Bestellungen via API, entpackt diese
-auf Item-Ebene (`clean_up_shopify`) und fuehrt einen deduplizierten Upsert durch.
-}
-\examples{
-\dontrun{
-update_shopify_data(api_key = Sys.getenv("SHOPIFY_TOKEN"))
-}
+Zieht geaenderte Daten via API, entpackt diese dynamisch je nach
+Endpunkt und fuehrt einen deduplizierten Upsert durch.
 }

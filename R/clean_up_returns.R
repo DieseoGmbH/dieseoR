@@ -41,7 +41,7 @@ clean_up_returns <- function(df) {
     dplyr::select(
       -c(
         shopify_order_path, full_name, phone, shopify_new_order_path,
-        deleted_at, delivered_at, requested_wrong_items, shopify_order_id,
+        deleted_at, delivered_at, requested_wrong_items,
         draft_order_id, draft_order_name, tracking_number, barcode_number, email
       )
     ) |>
