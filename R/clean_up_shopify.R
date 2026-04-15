@@ -1,76 +1,143 @@
-#' @title Bereinigt und entpackt Shopify Bestelldaten (Order-Level zu Item-Level)
+#' @title Bereinigt und entpackt Shopify Daten dynamisch (Orders, Checkouts, Products, Customers)
 #'
-#' @description Nimmt rohe Shopify-Bestelldaten, wendet allgemeine Namensbereinigungen
-#' an (`clean_master()`), parst Zeitstempel und entpackt die Liste der `line_items`,
-#' sodass jede Zeile im Datensatz einem einzelnen gekauften Artikel (Item) entspricht.
+#' @description Nimmt rohe Shopify-Daten und wendet je nach Endpunkt spezifische
+#' Bereinigungen an. Nutzt `clean_master()` fuer Namenskonventionen und entpackt Listen
+#' wie `line_items` oder `variants`.
 #'
-#' @param shopify_orders Ein Dataframe oder Tibble mit den rohen Shopify API-Daten (Endpunkt `orders`).
+#' @param shopify_data Ein Dataframe oder Tibble mit den rohen Shopify API-Daten.
+#' @param endpoint Character. Der Name des Endpunkts ("orders", "checkouts", "products", "customers").
 #'
-#' @return Ein bereinigtes Tibble auf Item-Ebene.
+#' @return Ein bereinigtes Tibble, passend zum Endpunkt.
 #' @export
 #'
-#' @importFrom dplyr mutate filter select across
+#' @importFrom dplyr mutate filter select across any_of
 #' @importFrom tidyr unnest
 #' @importFrom purrr map_lgl
 #' @importFrom lubridate ymd_hms
-#' @importFrom tidyselect ends_with
-#'
-#' @examples \dontrun{
-#' clean_data <- clean_up_shopify(raw_shopify_data)
-#' }
-clean_up_shopify <- function(shopify_orders) {
+#' @importFrom tidyselect ends_with starts_with
+clean_up_shopify <- function(shopify_data, endpoint = "orders") {
   # Sicherheits-Check: Falls ein leerer Chunk uebergeben wird
-  if (nrow(shopify_orders) == 0) {
+  if (nrow(shopify_data) == 0) {
     message("Der uebergebene Shopify-Datensatz ist leer. Gebe leeres Tibble zurueck.")
-    return(shopify_orders)
+    return(shopify_data)
   }
 
-  shopify_item_level <- shopify_orders |>
-    clean_master() |>
-    # Datumsspalten umwandeln (Namespace-Aufrufe fuer Package-Konformitaet)
-    dplyr::mutate(dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.))) |>
-    # Leere line_items herausfiltern, falls vorhanden
-    dplyr::filter(purrr::map_lgl(line_items, ~ length(.x) > 0)) |>
-    # Das eigentliche Entpacken.
-    # names_sep = "_" sorgt dafuer, dass aus 'sku' -> 'line_items_sku' wird
-    tidyr::unnest(cols = c(line_items), names_sep = "_") |>
-    # Jetzt waehlen wir die finalen Spalten aus und benennen sie sauber um
-    dplyr::select(
-      # Order-Metadaten (diese Werte duplizieren sich nun fuer jeden Artikel der Order)
-      order_id = id,
-      created_at,
-      source_name,
-      financial_status,
-      tags,
-      fulfillment_status,
-      customer_id,
-      shipping_address_country,
-      shipping_address_latitude,
-      shipping_address_longitude,
+  # Dynamische Bereinigung je nach Endpunkt
+  cleaned_data <- switch(endpoint,
 
-      # Item-Metadaten (spezifisch fuer die jeweilige Zeile)
-      product_sku = line_items_sku,
-      product_title = line_items_title,
-      variant_title = line_items_variant_title,
-      quantity = line_items_quantity,
-      price = line_items_price,
-      item_id = line_items_id,
-      browser_ip,
-      updated_at,
-      currency
-    ) |>
-    # Datentypen bereinigen und erste Item-Metriken berechnen
-    dplyr::mutate(
-      quantity = as.numeric(quantity),
-      price = as.numeric(price),
+    # ---------------------------------------------------------
+    # 1. ORDERS
+    # ---------------------------------------------------------
+    "orders" = {
+      shopify_data |>
+        clean_master() |>
+        dplyr::mutate(dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.))) |>
+        dplyr::filter(purrr::map_lgl(line_items, ~ length(.x) > 0)) |>
+        tidyr::unnest(cols = c(line_items), names_sep = "_") |>
+        dplyr::select(
+          order_id = id, created_at, source_name, financial_status, tags,
+          fulfillment_status, customer_id, shipping_address_country,
+          shipping_address_latitude, shipping_address_longitude,
+          product_sku = line_items_sku, product_title = line_items_title,
+          variant_title = line_items_variant_title, quantity = line_items_quantity,
+          price = line_items_price, item_id = line_items_id, browser_ip,
+          updated_at, currency
+        ) |>
+        dplyr::mutate(
+          quantity = as.numeric(quantity),
+          price = as.numeric(price),
+          item_gross_revenue = quantity * price,
+          product_title_with_variant = paste(product_title, "-", variant_title)
+        )
+    },
 
-      # Bruttoumsatz auf Zeilenebene (Einzelpreis * Menge)
-      # Das entspricht dem 'gross_revenue' Anteil dieses spezifischen Artikels
-      item_gross_revenue = quantity * price,
+    # ---------------------------------------------------------
+    # 2. CHECKOUTS
+    # ---------------------------------------------------------
+    "checkouts" = {
+      shopify_data |>
+        clean_master() |>
+        dplyr::mutate(dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.))) |>
+        dplyr::filter(purrr::map_lgl(line_items, ~ length(.x) > 0)) |>
+        tidyr::unnest(cols = c(line_items), names_sep = "_") |>
+        dplyr::select(
+          order_id = id, created_at, source_name, customer_id,
+          shipping_address_country, shipping_address_latitude, shipping_address_longitude,
+          product_sku = line_items_sku, product_title = line_items_title,
+          variant_title = line_items_variant_title, quantity = line_items_quantity,
+          price = line_items_price, item_id = line_items_product_id, updated_at,
+          currency, buyer_accepts_marketing, total_discounts, total_tax, total_weight
+        ) |>
+        dplyr::mutate(
+          quantity = as.numeric(quantity),
+          price = as.numeric(price),
+          total_weight = as.numeric(total_weight),
+          total_tax = as.numeric(total_tax),
+          total_discounts = as.numeric(total_discounts),
+          item_gross_revenue = quantity * price,
+          product_title_with_variant = paste(product_title, "-", variant_title)
+        )
+    },
 
-      # Eine kombinierte Namensspalte bauen (wie bei Adtribute)
-      product_title_with_variant = paste(product_title, "-", variant_title)
-    )
+    # ---------------------------------------------------------
+    # 3. PRODUCTS
+    # ---------------------------------------------------------
+    "products" = {
+      shopify_data |>
+        tidyr::unnest(c(variants), names_sep = "_") |>
+        clean_master() |>
+        dplyr::select(-c(
+          dplyr::any_of(c(
+            "published_scope", "body_html", "admin_graphql_api_id",
+            "variants_compare_at_price", "variants_product_id",
+            "variants_fulfillment_service", "variants_barcode",
+            "variants_position", "variants_inventory_management",
+            "variants_weight", "variants_weight_unit", "variants_image_id",
+            "options", "variants_admin_graphql_api_id",
+            "variants_inventory_item_id", "variants_option3", "tags",
+            "template_suffix", "variants_old_inventory_quantity"
+          )),
+          tidyselect::starts_with("image")
+        )) |>
+        dplyr::mutate(
+          dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.)),
+          variants_price = as.numeric(variants_price),
+          variants_inventory_quantity = as.numeric(variants_inventory_quantity)
+        )
+    },
 
-  return(shopify_item_level)
+    # ---------------------------------------------------------
+    # 4. CUSTOMERS
+    # ---------------------------------------------------------
+    "customers" = {
+      shopify_data |>
+        dplyr::mutate(
+          dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.)),
+          total_spent = as.numeric(total_spent)
+        ) |>
+        dplyr::select(-c(
+          dplyr::any_of(c(
+            "tax_exemptions", "note", "admin_graphql_api_id",
+            "first_name", "last_name", "last_order_id", "email",
+            "phone", "addresses"
+          )),
+          tidyselect::starts_with("default_")
+        )) |>
+        clean_master() |>
+        dplyr::select(-dplyr::any_of(c(
+          "sms_marketing_consent_consent_updated_at",
+          "sms_marketing_consent_consent_collected_from", "sms_marketing_consent",
+          "multipass_identifier", "email_marketing_consent_consent_updated_at"
+        )))
+    },
+
+    # ---------------------------------------------------------
+    # FALLBACK
+    # ---------------------------------------------------------
+    {
+      stop(sprintf("Fehler: Endpunkt '%s' wird in clean_up_shopify() noch nicht unterstuetzt.", endpoint), call. = FALSE)
+    }
+  )
+
+  return(cleaned_data)
 }

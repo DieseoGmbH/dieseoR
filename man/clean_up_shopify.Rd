@@ -2,23 +2,20 @@
 % Please edit documentation in R/clean_up_shopify.R
 \name{clean_up_shopify}
 \alias{clean_up_shopify}
-\title{Bereinigt und entpackt Shopify Bestelldaten (Order-Level zu Item-Level)}
+\title{Bereinigt und entpackt Shopify Daten dynamisch (Orders, Checkouts, Products, Customers)}
 \usage{
-clean_up_shopify(shopify_orders)
+clean_up_shopify(shopify_data, endpoint = "orders")
 }
 \arguments{
-\item{shopify_orders}{Ein Dataframe oder Tibble mit den rohen Shopify API-Daten (Endpunkt `orders`).}
+\item{shopify_data}{Ein Dataframe oder Tibble mit den rohen Shopify API-Daten.}
+
+\item{endpoint}{Character. Der Name des Endpunkts ("orders", "checkouts", "products", "customers").}
 }
 \value{
-Ein bereinigtes Tibble auf Item-Ebene.
+Ein bereinigtes Tibble, passend zum Endpunkt.
 }
 \description{
-Nimmt rohe Shopify-Bestelldaten, wendet allgemeine Namensbereinigungen
-an (`clean_master()`), parst Zeitstempel und entpackt die Liste der `line_items`,
-sodass jede Zeile im Datensatz einem einzelnen gekauften Artikel (Item) entspricht.
-}
-\examples{
-\dontrun{
-clean_data <- clean_up_shopify(raw_shopify_data)
-}
+Nimmt rohe Shopify-Daten und wendet je nach Endpunkt spezifische
+Bereinigungen an. Nutzt `clean_master()` fuer Namenskonventionen und entpackt Listen
+wie `line_items` oder `variants`.
 }
