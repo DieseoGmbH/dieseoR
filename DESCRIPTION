@@ -23,11 +23,13 @@ Imports:
     janitor,
     jsonlite,
     lubridate,
+    plotly,
     purrr,
     readxl,
     stringr,
     tidyr,
     tidyselect,
     tidytext,
-    udpipe
+    udpipe,
+    zoo
 RoxygenNote: 7.3.3
