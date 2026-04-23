@@ -20,6 +20,7 @@ Imports:
     devtools,
     dplyr,
     httr,
+    httr2,
     janitor,
     jsonlite,
     lubridate,

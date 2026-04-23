@@ -31,21 +31,77 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
     "orders" = {
       shopify_data |>
         clean_master() |>
-        dplyr::mutate(dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.))) |>
+        dplyr::mutate(
+          dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.)),
+
+          # 1. Payment Method entpacken
+          payment_method = purrr::map_chr(payment_gateway_names, ~ paste(.x, collapse = ", ")),
+
+          # 2. Discount Codes entpacken
+          discount_code = purrr::map_chr(discount_codes, function(x) {
+            if (length(x) > 0 && "code" %in% names(x)) paste(x$code, collapse = ", ") else NA_character_
+          }),
+
+          # 3. First Refund Date entpacken
+          first_refund_datetime = purrr::map_chr(refunds, function(x) {
+            if (length(x) > 0 && "created_at" %in% names(x)) {
+              as.character(min(lubridate::ymd_hms(x$created_at), na.rm = TRUE))
+            } else {
+              NA_character_
+            }
+          }),
+          first_refund_datetime = lubridate::ymd_hms(first_refund_datetime),
+
+          # 4. Cancellation Status
+          cancellation_status = !is.na(cancelled_at)
+        ) |>
         dplyr::filter(purrr::map_lgl(line_items, ~ length(.x) > 0)) |>
         tidyr::unnest(cols = c(line_items), names_sep = "_") |>
         dplyr::select(
-          order_id = id, created_at, source_name, financial_status, tags,
-          fulfillment_status, customer_id, shipping_address_country,
-          shipping_address_latitude, shipping_address_longitude,
-          product_sku = line_items_sku, product_title = line_items_title,
-          variant_title = line_items_variant_title, quantity = line_items_quantity,
-          price = line_items_price, item_id = line_items_id, browser_ip,
-          updated_at, currency
+          # --- Standard & IDs ---
+          order_id = id,
+          shopify_order_name = name, # z.B. #121923300
+          identity = email, # für Adtribute Match
+          created_at,
+          sales_channel = source_name,
+          financial_status,
+          tags,
+          fulfillment_status,
+          customer_id,
+
+          # --- Adtribute Extraktionen ---
+          payment_method,
+          discount_code,
+          cancellation_status,
+          first_refund_datetime,
+
+          # --- Adtribute Financials (Order Level) ---
+          total_price,
+          total_discounts,
+          total_tax,
+
+          # --- Line Items ---
+          product_sku = line_items_sku,
+          product_title = line_items_title,
+          variant_title = line_items_variant_title,
+          quantity = line_items_quantity,
+          price = line_items_price,
+          item_id = line_items_id,
+
+          # --- Location & System ---
+          shipping_address_country,
+          shipping_address_latitude,
+          shipping_address_longitude,
+          browser_ip,
+          updated_at,
+          currency
         ) |>
         dplyr::mutate(
           quantity = as.numeric(quantity),
           price = as.numeric(price),
+          total_price = as.numeric(total_price),
+          total_discounts = as.numeric(total_discounts),
+          total_tax = as.numeric(total_tax),
           item_gross_revenue = quantity * price,
           product_title_with_variant = paste(product_title, "-", variant_title)
         )
