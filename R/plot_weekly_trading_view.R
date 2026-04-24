@@ -15,17 +15,25 @@
 #' @importFrom zoo rollmean
 #' @importFrom plotly plot_ly add_lines add_segments add_markers layout subplot config
 plot_weekly_trading_view <- function(df, cleaned_return_data) {
+  # 1. IDs der Retouren extrem speicherschonend als Vektor extrahieren
+  return_ids <- cleaned_return_data |>
+    dplyr::filter(type == "return") |>
+    dplyr::pull(shopify_order_id) |>
+    unique()
+
+  # 2. Speichereffiziente Vorfilterung (Reihenfolge ist entscheidend!)
   df <- df |>
-    rename("shopify_order_id" = order_id) |>
-    left_join(cleaned_return_data |>
-      filter(type == "return") |>
-      select(shopify_order_id, type) |> distinct()) |>
-    filter(is.na(type)) |>
-    filter(financial_status %in% c("paid", "partially_paid"))
-  # 1. DATENAUFBEREITUNG & INDIKATOREN
+    dplyr::rename("shopify_order_id" = order_id) |>
+    # ZUERST filtern: Reduziert die Zeilenanzahl massiv VOR weiteren Operationen
+    dplyr::filter(financial_status %in% c("paid", "partially_paid")) |>
+    # STATT left_join: Ein direkter Ausschluss über den Vektor (anti-join Logik)
+    dplyr::filter(!shopify_order_id %in% return_ids)
+
+  # 3. DATENAUFBEREITUNG & INDIKATOREN (Dein restlicher Code bleibt unangetastet)
   weekly_data <- df |>
     dplyr::mutate(date = lubridate::as_date(created_at)) |>
     dplyr::group_by(date) |>
+    # ... Rest des Codes
     dplyr::summarise(
       daily_revenue = sum(item_gross_revenue, na.rm = TRUE),
       daily_quantity = sum(quantity, na.rm = TRUE),
