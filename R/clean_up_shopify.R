@@ -94,7 +94,9 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           shipping_address_longitude,
           browser_ip,
           updated_at,
-          currency
+          currency,
+          landing_site,
+          referring_site
         ) |>
         dplyr::mutate(
           quantity = as.numeric(quantity),
