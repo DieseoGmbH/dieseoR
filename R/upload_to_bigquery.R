@@ -20,7 +20,7 @@
 upload_to_bigquery <- function(data,
                                dataset_id = "support_analytics",
                                table_id,
-                               json_key_path = "/Users/andres/git/dieseoR/scripts/data-analytics-491117-58f718e1ee61.json",
+                               json_key_path = "musterkeypath",
                                write_disposition = "WRITE_APPEND") {
   # 1. Error Handling: Existiert der Key?
   if (!file.exists(json_key_path)) {
