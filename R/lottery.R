@@ -13,13 +13,8 @@
 lottery <- function(
   data,
   prizes = c(
-    rep("Reisegutschein 2.500 €", 10),
-    rep("Erstattete Bestellung", 100),
-    rep("Gratis Produkt neue Kollektion", 100),
-    rep("50 € Pammys Gutschein", 300),
-    rep("Luxus-Wellness-Wochenende (Wellcard 500 €)", 10),
-    rep("Spa- & Beauty-Tag (Wellcard 300 €)", 10),
-    rep("Shopping-Day 1.000 €", 5)
+    rep("price1", 10),
+    rep("price2", 100)
   ),
   seed = NULL
 ) {
