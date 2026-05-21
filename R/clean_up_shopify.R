@@ -12,7 +12,7 @@
 #'
 #' @importFrom dplyr mutate filter select across any_of
 #' @importFrom tidyr unnest
-#' @importFrom purrr map_lgl
+#' @importFrom purrr map_chr map_lgl
 #' @importFrom lubridate ymd_hms
 #' @importFrom tidyselect ends_with starts_with
 clean_up_shopify <- function(shopify_data, endpoint = "orders") {
@@ -52,7 +52,17 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           }),
           first_refund_datetime = lubridate::ymd_hms(first_refund_datetime),
 
-          # 4. Cancellation Status
+          # NEU: 4. Fulfillment Date entpacken (nimmt das Datum des ersten Fulfillment-Pakets)
+          fulfillment_date = purrr::map_chr(fulfillments, function(x) {
+            if (length(x) > 0 && "created_at" %in% names(x)) {
+              as.character(min(lubridate::ymd_hms(x$created_at), na.rm = TRUE))
+            } else {
+              NA_character_
+            }
+          }),
+          fulfillment_date = lubridate::ymd_hms(fulfillment_date),
+
+          # 5. Cancellation Status
           cancellation_status = !is.na(cancelled_at)
         ) |>
         dplyr::filter(purrr::map_lgl(line_items, ~ length(.x) > 0)) |>
@@ -63,6 +73,7 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           shopify_order_name = name, # z.B. #121923300
           identity = email, # für Adtribute Match
           created_at,
+          fulfillment_date, # <--- NEUE SPALTE HIER AUSGEWÄHLT
           sales_channel = source_name,
           financial_status,
           tags,
