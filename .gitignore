@@ -5,3 +5,13 @@
 .DS_Store
 .quarto
 *.json
+.positai
+datadir/
+*.csv
+*.rds
+*.png
+*.jpg
+*.gif
+*.tmp
+.RData*
+.pdf*
