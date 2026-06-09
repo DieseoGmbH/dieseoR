@@ -8,8 +8,7 @@ upload_to_bigquery(
   data,
   dataset_id = "support_analytics",
   table_id,
-  json_key_path =
-    "muster.json",
+  json_key_path = "musterkeypath",
   write_disposition = "WRITE_APPEND"
 )
 }
