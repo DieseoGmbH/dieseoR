@@ -22,7 +22,7 @@ load_adtribute_master <- function(local_r_path = "~/workspace/local.R") {
 
   datadir_path <- env$datadir
   adtribute_dir <- file.path(datadir_path, "adtribute_parquet_chunks")
-  shopify_rds_path <- file.path(datadir_path, "shopify/all_shopify_items.rds")
+  shopify_rds_path <- file.path(datadir_path, "shopify/all_shopify_items_backup.rds")
 
   # Validierung der Existenz
   if (!dir.exists(adtribute_dir)) stop(paste("Ordner nicht gefunden:", adtribute_dir))

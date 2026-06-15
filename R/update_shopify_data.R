@@ -38,18 +38,23 @@ update_shopify_data <- function(datadir = "~/data",
   message(sprintf("Lese bestehende '%s' Datenbank ein aus: %s", endpoint, data_path))
   df_existing <- readRDS(data_path)
 
-  # 3. Startdatum fuer den API-Call ermitteln (Korrektur: Nutzt updated_at, nicht created_at)
+  # ... in update_shopify_data.R ...
+
+  # 3. Startdatum für den API-Call ermitteln
   if ("updated_at" %in% names(df_existing)) {
     max_date <- as.Date(max(df_existing$updated_at, na.rm = TRUE))
-    start_fetch <- max_date - lubridate::days(2)
+    # FIX: 30 Tage zurückblicken statt 2 Tage, um späte Stornos,
+    # Refunds und Fulfillments sicher abzugreifen!
+    start_fetch <- max_date - lubridate::days(100)
   } else {
-    message("Konnte kein 'updated_at' finden. Lade die letzten 7 Tage als Fallback.")
-    start_fetch <- Sys.Date() - lubridate::days(7)
+    message("Konnte kein 'updated_at' finden. Lade die letzten 30 Tage als Fallback.")
+    start_fetch <- Sys.Date() - lubridate::days(100)
   }
 
   updated_at_min <- format(start_fetch, "%Y-%m-%dT00:00:00Z")
-  message(sprintf("Starte inkrementelles Update fuer '%s' ab %s...", endpoint, updated_at_min))
+  message(sprintf("Starte inkrementelles Update für '%s' ab %s...", endpoint, updated_at_min))
 
+  # ... der Rest bleibt gleich ...
   # 4. Neue Daten von der API ziehen
   df_new_raw <- get_shopify_data(
     api_key = api_key,

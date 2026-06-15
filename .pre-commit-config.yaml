@@ -2,7 +2,7 @@
 # R specific hooks: https://github.com/lorenzwalthert/precommit
 repos:
 -   repo: https://github.com/lorenzwalthert/precommit
-    rev: v0.4.3.9021
+    rev: 8054a7fe52aafc8463ad977c463679ac034e8573
     hooks:
     -   id: style-files
         args: [--style_pkg=styler, --style_fun=tidyverse_style]
@@ -19,6 +19,7 @@ repos:
         - udpipe
         - plotly
         - zoo
+        - arrow
     # codemeta must be above use-tidy-description when both are used
     # codemeta must be above use-tidy-description when both are used
     # -   id: codemeta-description-updated
