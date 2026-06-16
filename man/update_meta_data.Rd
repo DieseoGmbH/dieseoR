@@ -42,7 +42,7 @@ update_meta_data("hourly", overlap_days = 3)
 }
 }
 \seealso{
-Other adribute: 
-\code{\link{get_meta_data}()}
+Other adribute:
+\code{\link[=get_meta_data]{get_meta_data()}}
 }
 \concept{adribute}

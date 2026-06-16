@@ -8,7 +8,7 @@ upload_to_bigquery(
   data,
   dataset_id = "support_analytics",
   table_id,
-  json_key_path = "musterkeypath",
+  json_key_path = "~/git/dieseoR/scripts/data-analytics-491117-58f718e1ee61.json",
   write_disposition = "WRITE_APPEND"
 )
 }
@@ -28,15 +28,4 @@ Invisible TRUE bei erfolgreichem Upload.
 }
 \description{
 Authentifiziert sich via JSON-Service-Account-Key, extrahiert automatisch die Projekt-ID und lädt ein Dataframe in eine BigQuery Tabelle hoch.
-}
-\details{
-Upload data to Google BigQuery
-}
-\examples{
-\dontrun{
-upload_to_bigquery(
-  data = clean_zendesk_data,
-  table_id = "zendesk_tickets"
-)
-}
 }

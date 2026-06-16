@@ -25,5 +25,5 @@ Invisible TRUE bei Erfolg.
 }
 \description{
 Zieht geaenderte Daten via API, entpackt diese dynamisch je nach
-Endpunkt und fuehrt einen deduplizierten Upsert durch.
+Endpunkt und fuehrt einen deduplizierten Upsert durch. Memory-Safe durch Auto-Chunking.
 }
