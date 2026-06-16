@@ -10,12 +10,13 @@
 #' @return Ein bereinigter und strukturierter Data Frame (Tibble).
 #' @export
 #'
-#' @importFrom dplyr mutate select starts_with coalesce if_else difftime nest
+#' @importFrom dplyr mutate select starts_with coalesce if_else
 #' @importFrom tidyr unnest_wider unnest_longer
 #' @importFrom stringr str_extract str_remove str_detect
 #' @importFrom lubridate ymd_hms as_datetime
 #' @importFrom purrr map
-#'
+#' @importFrom base difftime
+#' @importFrom tidyr nest
 #' @examples
 #' \dontrun{
 #' # Aus einer Datei laden und bereinigen

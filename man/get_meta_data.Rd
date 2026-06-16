@@ -38,7 +38,7 @@ get_meta_data("2026-04-18", "2026-04-20", granularity = "hourly")
 }
 }
 \seealso{
-Other adribute: 
-\code{\link{update_meta_data}()}
+Other adribute:
+\code{\link[=update_meta_data]{update_meta_data()}}
 }
 \concept{adribute}

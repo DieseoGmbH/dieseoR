@@ -11,8 +11,10 @@ get_shopify_data(
   api_version = "2024-01",
   limit = 250,
   chunk_size = 100,
-  temp_dir = "~/data/shopify/shopify_temp",
-  updated_at_min = NULL
+  raw_dir = "~/data/shopify/raw_chunks",
+  updated_at_min = NULL,
+  created_at_min = NULL,
+  created_at_max = NULL
 )
 }
 \arguments{
@@ -28,13 +30,19 @@ get_shopify_data(
 
 \item{chunk_size}{Integer. Nach wie vielen Seiten soll ein Zwischenstand auf der Festplatte gespeichert werden?}
 
-\item{temp_dir}{Character. Pfad zum Verzeichnis, in dem die Chunks gespeichert werden.}
+\item{raw_dir}{Character. Pfad zum Verzeichnis, in dem die Chunks permanent gespeichert werden (Data Lake).}
+
+\item{updated_at_min}{Character. Optionales Startdatum (ISO 8601) fuer inkrementelle Updates basierend auf Aenderungen.}
+
+\item{created_at_min}{Character. Optionales Startdatum (ISO 8601) fuer das Erstellungsdatum.}
+
+\item{created_at_max}{Character. Optionales Enddatum (ISO 8601) fuer das Erstellungsdatum (nuetzlich fuer Resume-Loads in die Vergangenheit).}
 }
 \value{
-Ein tibble mit allen geparsten Daten.
+Ein tibble mit allen geparsten Daten des aktuellen Runs.
 }
 \description{
 Ruft Daten von einem spezifizierten Shopify API-Endpunkt ab.
 Nutzt Chunking, um bei grossen Datenmengen (z. B. > 100.000 Bestellungen) den Arbeitsspeicher
-zu schonen. Speichert Zwischenstaende als .rds-Dateien.
+zu schonen. Speichert Zwischenstaende als .rds-Dateien ab und nutzt eine Run-ID, um Ueberschreibungen zu verhindern.
 }

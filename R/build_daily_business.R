@@ -44,8 +44,8 @@
 #'   \code{channel_clicks}, \code{gross_orders}, \code{nc_gross_orders},
 #'   \code{nc_gross_revenue}, \code{gross_quantity}.
 #'
-#' @importFrom dplyr arrange across distinct filter full_join group_by if_else
-#'   left_join mutate n_distinct row_number select summarise ungroup
+#' @importFrom dplyr arrange across distinct filter full_join
+#' @importFrom dplyr group_by if_else
 #' @importFrom tidyr replace_na
 #' @importFrom rlang .data
 #' @export
