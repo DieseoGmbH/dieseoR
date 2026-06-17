@@ -49,24 +49,33 @@ upload_to_bigquery <- function(data,
     table = table_id
   )
 
-  # 5. Upload der Daten (als reguläres R-Dataframe)
+  # In deiner Funktion upload_to_bigquery unter Punkt 5 ersetzen:
   tryCatch(
     {
-      message("Starte Daten-Upload nach BigQuery (", nrow(data), " Zeilen)...")
+      message("Starte optimierten Parquet-Upload nach BigQuery (", nrow(data), " Zeilen)...")
 
+      # 1. Temporäre Datei erstellen
+      tmp_parquet <- tempfile(fileext = ".parquet")
+
+      # 2. Dataframe strikt als Parquet schreiben
+      arrow::write_parquet(data, tmp_parquet)
+
+      # 3. Das Parquet-File (statt des Dataframes) hochladen
       bigrquery::bq_table_upload(
         x = tb,
-        values = data,
+        values = tmp_parquet, # <--- Pfad zur Datei statt Dataframe!
         create_disposition = "CREATE_IF_NEEDED",
         write_disposition = write_disposition,
-        billing = project_id,
-        # Erlaubt das automatische Anpassen/Erweitern des Schemas bei Append:
-        schema_update_options = "ALLOW_FIELD_RELAXATION"
+        billing = project_id
       )
+
+      # 4. Temporäre Datei wieder löschen
+      unlink(tmp_parquet)
 
       message("✅ Upload erfolgreich abgeschlossen!")
     },
     error = function(e) {
+      if (file.exists(tmp_parquet)) unlink(tmp_parquet)
       stop("Upload fehlgeschlagen: ", e$message)
     }
   )
