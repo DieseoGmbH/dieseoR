@@ -12,20 +12,6 @@ upload_to_bigquery(
   write_disposition = "WRITE_APPEND"
 )
 }
-\arguments{
-\item{data}{Ein data.frame oder tibble, das hochgeladen werden soll.}
-
-\item{dataset_id}{Character. Die BigQuery Dataset-ID.}
-
-\item{table_id}{Character. Der Name der Zieltabelle (wird erstellt, falls nicht existent).}
-
-\item{json_key_path}{Character. Der lokale Pfad zur .json Schlüsseldatei.}
-
-\item{write_disposition}{Character. Verhalten, wenn die Tabelle schon existiert. Standard ist "WRITE_APPEND". Alternativ: "WRITE_TRUNCATE".}
-}
-\value{
-Invisible TRUE bei erfolgreichem Upload.
-}
 \description{
-Authentifiziert sich via JSON-Service-Account-Key, extrahiert automatisch die Projekt-ID und lädt ein Dataframe in eine BigQuery Tabelle hoch.
+Authentifiziert sich und lädt via ausfallsicherem Parquet-Format nach BigQuery hoch.
 }

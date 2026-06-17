@@ -21,7 +21,6 @@ upload_to_bigquery <- function(data, dataset_id = "support_analytics", table_id,
       stop("Fehler beim Auslesen der project_id: ", e$message)
     }
   )
-
   tryCatch(
     {
       bigrquery::bq_auth(path = json_key_path)
@@ -31,37 +30,38 @@ upload_to_bigquery <- function(data, dataset_id = "support_analytics", table_id,
       stop("Authentifizierung fehlgeschlagen: ", e$message)
     }
   )
-
   tb <- bigrquery::bq_table(project = project_id, dataset = dataset_id, table = table_id)
 
   tryCatch(
     {
       message("Starte ECHTEN Parquet-Daten-Upload nach BigQuery (", nrow(data), " Zeilen)...")
 
-      # 1. Daten zwingend als binäres Parquet zwischenspeichern (immun gegen URL-Sonderzeichen!)
+      # 1. Temporäre Parquet-Datei lokal auf Festplatte erstellen
       tmp_file <- tempfile(fileext = ".parquet")
       arrow::write_parquet(data, tmp_file)
 
-      # 2. Die Parquet-Datei an BigQuery übergeben (NICHT das Dataframe!)
-      bigrquery::bq_table_upload(
+      # 2. Upload via bq_perform_upload (die zugrundeliegende Funktion für Datei-Uploads)
+      # bq_table_upload ruft das im Hintergrund auf, wenn man Dateien statt DFs hochlädt.
+      bigrquery::bq_perform_upload(
         x = tb,
-        values = tmp_file,
+        fields = tmp_file, # Hier kommt der Pfad zur Parquet-Datei hin
+        source_format = "PARQUET", # Teilt BigQuery mit, dass es Parquet lesen soll
         create_disposition = "CREATE_IF_NEEDED",
         write_disposition = write_disposition,
         billing = project_id,
         schema_update_options = "ALLOW_FIELD_RELAXATION"
       )
 
-      # 3. Temporäre Datei wieder löschen
+      # 3. Datei aufräumen
       unlink(tmp_file)
       message("✅ Upload erfolgreich abgeschlossen!")
     },
     error = function(e) {
-      # Im Fehlerfall trotzdem aufräumen
-      if (exists("tmp_file") && file.exists(tmp_file)) unlink(tmp_file)
+      if (exists("tmp_file") && file.exists(tmp_file)) {
+        unlink(tmp_file)
+      }
       stop("Upload fehlgeschlagen: ", e$message)
     }
   )
-
   invisible(TRUE)
 }
