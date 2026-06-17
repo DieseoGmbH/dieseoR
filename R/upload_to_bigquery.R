@@ -7,7 +7,10 @@
 upload_to_bigquery <- function(data, dataset_id = "support_analytics", table_id, json_key_path = "~/git/dieseoR/scripts/data-analytics-491117-58f718e1ee61.json",
                                write_disposition = "WRITE_APPEND") {
   if (!file.exists(json_key_path)) {
-    stop("Die JSON-Schlüsseldatei wurde unter dem angegebenen Pfad nicht gefunden: ", json_key_path)
+    stop(
+      "Die JSON-Schlüsseldatei wurde unter dem angegebenen Pfad nicht gefunden: ",
+      json_key_path
+    )
   }
   project_id <- tryCatch(
     {
@@ -24,41 +27,38 @@ upload_to_bigquery <- function(data, dataset_id = "support_analytics", table_id,
   tryCatch(
     {
       bigrquery::bq_auth(path = json_key_path)
-      message("Erfolgreich bei Google Cloud (Projekt: ", project_id, ") authentifiziert.")
+      message(
+        "Erfolgreich bei Google Cloud (Projekt: ", project_id,
+        ") authentifiziert."
+      )
     },
     error = function(e) {
       stop("Authentifizierung fehlgeschlagen: ", e$message)
     }
   )
-  tb <- bigrquery::bq_table(project = project_id, dataset = dataset_id, table = table_id)
-
+  tb <- bigrquery::bq_table(
+    project = project_id, dataset = dataset_id,
+    table = table_id
+  )
   tryCatch(
     {
-      message("Starte ECHTEN Parquet-Daten-Upload nach BigQuery (", nrow(data), " Zeilen)...")
+      message(
+        "Starte Daten-Upload nach BigQuery (",
+        nrow(data), " Zeilen)..."
+      )
 
-      # 1. Temporäre Parquet-Datei lokal auf Festplatte erstellen
-      tmp_file <- tempfile(fileext = ".parquet")
-      arrow::write_parquet(data, tmp_file)
-
-      # 2. Upload via bq_perform_upload
-      bigrquery::bq_perform_upload(
+      # Zurück zum Standard: values MUSS das R-Dataframe ('data') sein
+      bigrquery::bq_table_upload(
         x = tb,
-        values = tmp_file, # <--- HIER WAR DER FEHLER (geändert von 'fields' zu 'values')
-        source_format = "PARQUET",
+        values = data,
         create_disposition = "CREATE_IF_NEEDED",
         write_disposition = write_disposition,
         billing = project_id,
         schema_update_options = "ALLOW_FIELD_RELAXATION"
       )
-
-      # 3. Datei aufräumen
-      unlink(tmp_file)
       message("✅ Upload erfolgreich abgeschlossen!")
     },
     error = function(e) {
-      if (exists("tmp_file") && file.exists(tmp_file)) {
-        unlink(tmp_file)
-      }
       stop("Upload fehlgeschlagen: ", e$message)
     }
   )
