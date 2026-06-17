@@ -40,12 +40,11 @@ upload_to_bigquery <- function(data, dataset_id = "support_analytics", table_id,
       tmp_file <- tempfile(fileext = ".parquet")
       arrow::write_parquet(data, tmp_file)
 
-      # 2. Upload via bq_perform_upload (die zugrundeliegende Funktion für Datei-Uploads)
-      # bq_table_upload ruft das im Hintergrund auf, wenn man Dateien statt DFs hochlädt.
+      # 2. Upload via bq_perform_upload
       bigrquery::bq_perform_upload(
         x = tb,
-        fields = tmp_file, # Hier kommt der Pfad zur Parquet-Datei hin
-        source_format = "PARQUET", # Teilt BigQuery mit, dass es Parquet lesen soll
+        values = tmp_file, # <--- HIER WAR DER FEHLER (geändert von 'fields' zu 'values')
+        source_format = "PARQUET",
         create_disposition = "CREATE_IF_NEEDED",
         write_disposition = write_disposition,
         billing = project_id,
