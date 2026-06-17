@@ -59,7 +59,9 @@ upload_to_bigquery <- function(data,
         values = data,
         create_disposition = "CREATE_IF_NEEDED",
         write_disposition = write_disposition,
-        billing = project_id
+        billing = project_id,
+        # Erlaubt das automatische Anpassen/Erweitern des Schemas bei Append:
+        schema_update_options = "ALLOW_FIELD_RELAXATION"
       )
 
       message("✅ Upload erfolgreich abgeschlossen!")
