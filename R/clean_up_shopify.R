@@ -83,6 +83,7 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           tags,
           fulfillment_status,
           customer_id,
+          note,
 
           # --- Adtribute Extraktionen ---
           payment_method,
@@ -106,6 +107,8 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           item_id = line_items_id,
           line_items_fulfillment_status,
           line_items_total_discount,
+          line_items_product_id,
+          line_items_variant_id,
 
           # --- Location & System ---
           shipping_address_country,
