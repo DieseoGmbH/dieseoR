@@ -2,14 +2,9 @@
 % Please edit documentation in R/update_shopify_data.R
 \name{update_shopify_data}
 \alias{update_shopify_data}
-\title{Inkrementelles Update der Shopify Daten (Upsert)}
+\title{Inkrementelles Update der Shopify Daten (DuckDB Upsert)}
 \usage{
-update_shopify_data(
-  datadir = "~/data",
-  endpoint = "orders",
-  api_key,
-  data_path = NULL
-)
+update_shopify_data(datadir = "~/data", endpoint = "orders", api_key)
 }
 \arguments{
 \item{datadir}{Character. Der Pfad zum zentralen Datenverzeichnis (`~/data/`).}
@@ -17,13 +12,11 @@ update_shopify_data(
 \item{endpoint}{Character. Welcher Endpunkt aktualisiert werden soll ("orders", "checkouts", "products", "customers").}
 
 \item{api_key}{Character. Das Shopify Admin API Access Token.}
-
-\item{data_path}{Optional. Manueller Pfad zur RDS-Datei. Wird sonst automatisch berechnet.}
 }
 \value{
 Invisible TRUE bei Erfolg.
 }
 \description{
 Zieht geaenderte Daten via API, entpackt diese dynamisch je nach
-Endpunkt und fuehrt einen deduplizierten Upsert durch. Memory-Safe durch Auto-Chunking.
+Endpunkt und fuehrt einen In-Database Upsert durch. Memory-Safe.
 }
