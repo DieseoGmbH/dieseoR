@@ -18,8 +18,10 @@ BugReports: https://github.com/andresdies/dieseoR/issues
 Imports: 
     arrow,
     bigrquery,
+    DBI,
     devtools,
     dplyr,
+    duckdb,
     httr,
     httr2,
     janitor,
