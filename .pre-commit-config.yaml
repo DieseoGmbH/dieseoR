@@ -20,6 +20,9 @@ repos:
         - plotly
         - zoo
         - arrow
+        - duckdb
+        - DBI
+        - lubridate
     # codemeta must be above use-tidy-description when both are used
     # codemeta must be above use-tidy-description when both are used
     # -   id: codemeta-description-updated
