@@ -4,19 +4,27 @@
 \alias{update_shopify_data}
 \title{Inkrementelles Update der Shopify Daten (DuckDB Upsert)}
 \usage{
-update_shopify_data(datadir = "~/data", endpoint = "orders", api_key)
+update_shopify_data(
+  datadir = "~/data",
+  endpoint = "orders",
+  api_key,
+  buffer_days = 7
+)
 }
 \arguments{
 \item{datadir}{Character. Der Pfad zum zentralen Datenverzeichnis (`~/data/`).}
 
-\item{endpoint}{Character. Welcher Endpunkt aktualisiert werden soll ("orders", "checkouts", "products", "customers").}
+\item{endpoint}{Character. Welcher Endpunkt aktualisiert werden soll ("orders", "products" etc.).}
 
 \item{api_key}{Character. Das Shopify Admin API Access Token.}
+
+\item{buffer_days}{Integer. Zeitpuffer in Tagen fuer "Late-Arriving" Updates.}
 }
 \value{
-Invisible TRUE bei Erfolg.
+Invisible TRUE bei Erfolg, FALSE bei Fehler.
 }
 \description{
-Zieht geaenderte Daten via API, entpackt diese dynamisch je nach
-Endpunkt und fuehrt einen In-Database Upsert durch. Memory-Safe.
+Orchestriert den Delta-Ladevorgang fuer Shopify. Ermittelt den
+Timestamp, zieht die Deltas via API, bereinigt diese sicher und schreibt sie RAM-schonend in DuckDB.
+Integriertes Error-Handling und Schema-Evolution.
 }
