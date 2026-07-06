@@ -2,7 +2,7 @@
 % Please edit documentation in R/update_shopify_data.R
 \name{update_shopify_data}
 \alias{update_shopify_data}
-\title{Inkrementelles Update der Shopify Daten (DuckDB Upsert)}
+\title{Inkrementelles Update der Shopify Daten (DuckDB Blue-Green Swap)}
 \usage{
 update_shopify_data(
   datadir = "~/data",
@@ -24,7 +24,7 @@ update_shopify_data(
 Invisible TRUE bei Erfolg, FALSE bei Fehler.
 }
 \description{
-Orchestriert den Delta-Ladevorgang fuer Shopify. Ermittelt den
-Timestamp, zieht die Deltas via API, bereinigt diese sicher und schreibt sie RAM-schonend in DuckDB.
-Integriertes Error-Handling und Schema-Evolution.
+Orchestriert den Delta-Ladevorgang fuer Shopify per Blue-Green Deployment.
+Kopiert die Live-DuckDB in eine Schatten-Datenbank, fuehrt den Upsert isoliert durch und
+tauscht die DB-Datei am Ende atomar aus. Das verhindert read-only Concurrency-Errors.
 }
