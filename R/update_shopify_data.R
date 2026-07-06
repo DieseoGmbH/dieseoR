@@ -66,7 +66,7 @@ perform_duckdb_upsert <- function(con, df_delta, endpoint, pk_cols) {
     message(sprintf("⚠️ Schema-Evolution: Fuege %d neue Spalten zu '%s' hinzu...", length(new_cols), endpoint))
 
     for (col in new_cols) {
-      # R-Typ auf SQL-Typ mappen (korrigierte Logik)
+      # R-Typ auf SQL-Typ mappen
       r_type <- class(df_delta[[col]])[1]
       sql_type <- switch(r_type,
         "integer" = "INTEGER",
@@ -90,7 +90,6 @@ perform_duckdb_upsert <- function(con, df_delta, endpoint, pk_cols) {
   }
 
   # 3. Upsert Logik: Loesche veraltete Zeilen aus der Haupttabelle
-  # (Unterstuetzt Composite Keys wie z.B. order_id, item_id)
   pk_str <- paste(pk_cols, collapse = ", ")
   delete_query <- sprintf("
     DELETE FROM %s
@@ -113,11 +112,11 @@ perform_duckdb_upsert <- function(con, df_delta, endpoint, pk_cols) {
   invisible(TRUE)
 }
 
-#' @title Inkrementelles Update der Shopify Daten (DuckDB Upsert)
+#' @title Inkrementelles Update der Shopify Daten (DuckDB Blue-Green Swap)
 #'
-#' @description Orchestriert den Delta-Ladevorgang fuer Shopify. Ermittelt den
-#' Timestamp, zieht die Deltas via API, bereinigt diese sicher und schreibt sie RAM-schonend in DuckDB.
-#' Integriertes Error-Handling und Schema-Evolution.
+#' @description Orchestriert den Delta-Ladevorgang fuer Shopify per Blue-Green Deployment.
+#' Kopiert die Live-DuckDB in eine Schatten-Datenbank, fuehrt den Upsert isoliert durch und
+#' tauscht die DB-Datei am Ende atomar aus. Das verhindert read-only Concurrency-Errors.
 #'
 #' @param datadir Character. Der Pfad zum zentralen Datenverzeichnis (`~/data/`).
 #' @param endpoint Character. Welcher Endpunkt aktualisiert werden soll ("orders", "products" etc.).
@@ -136,19 +135,32 @@ update_shopify_data <- function(datadir = "~/data",
     stop("Fehler: api_key muss uebergeben werden.")
   }
 
+  # Architektur-Pfade definieren
   db_path <- file.path(datadir, "shopify", "shopify.duckdb")
+  update_path <- file.path(datadir, "shopify", "shopify_update.duckdb")
   raw_dir <- file.path(datadir, "shopify", "raw_chunks")
 
   if (!dir.exists(raw_dir)) dir.create(raw_dir, recursive = TRUE)
 
-  message(sprintf("\\n🔌 Verbinde mit DuckDB für Inkrementelles Update: %s", db_path))
+  message(sprintf("\n🔌 Bereite Blue-Green Swap für Shopify Endpunkt '%s' vor...", toupper(endpoint)))
+
+  # 1. Schattenkopie erstellen
+  if (file.exists(db_path)) {
+    message("  -> Erstelle Schatten-Datenbank. Dashboard-Lesezugriff bleibt ungestört.")
+    file.copy(from = db_path, to = update_path, overwrite = TRUE)
+  } else {
+    message("  -> Keine bestehende DuckDB gefunden. Initialer Lauf...")
+  }
+
   con <- NULL
+  update_success <- FALSE
 
-  # Robustes Error-Handling, damit das Dashboard-Update nicht crasht
+  # Robustes Error-Handling
   tryCatch({
-    con <- DBI::dbConnect(duckdb::duckdb(), dbdir = db_path)
+    # 2. Verbinde EXPLIZIT mit der Schatten-DB im Write-Modus
+    con <- DBI::dbConnect(duckdb::duckdb(), dbdir = update_path, read_only = FALSE)
 
-    # 1. Dynamischen Timestamp holen
+    # 3. Dynamischen Timestamp holen (aus der Kopie)
     last_sync <- get_latest_shopify_timestamp(con, endpoint, buffer_days)
 
     if (is.null(last_sync)) {
@@ -157,10 +169,9 @@ update_shopify_data <- function(datadir = "~/data",
       message(sprintf("⏳ Letzter Sync (inkl. %d Tage Puffer): %s", buffer_days, last_sync))
     }
 
-    # 2. Delta-Daten von der API laden
+    # 4. Delta-Daten von der API laden
     message(sprintf("📥 Ziehe Shopify-Deltas fuer Endpunkt '%s'...", endpoint))
 
-    # get_shopify_data() laedt Chunks und fuegt sie ressourcenschonend zusammen
     df_delta <- get_shopify_data(
       shop_url = "pummmys.myshopify.com",
       api_key = api_key,
@@ -171,20 +182,20 @@ update_shopify_data <- function(datadir = "~/data",
 
     if (is.null(df_delta) || nrow(df_delta) == 0) {
       message("✅ Keine neuen Daten bei Shopify gefunden. Update uebersprungen.")
-      return(invisible(TRUE))
+      update_success <- TRUE
+      return(invisible(TRUE)) # Beendet den TryCatch-Block erfolgreich
     }
 
     message(sprintf("🔄 %d neue/geaenderte Datensaetze gefunden. Starte Bereinigung...", nrow(df_delta)))
 
-    # 3. WICHTIGER FIX: Bereinigung der rohen API-Daten!
-    # Löst verschachtelte Listen (z.B. line_items) auf und sorgt für ein flaches, datenbanktaugliches Format
+    # 5. Datenflachung und Formatierung
     df_clean <- clean_up_shopify(shopify_data = df_delta, endpoint = endpoint)
 
-    # RAM-Optimierung: Rohdaten sofort aus dem Speicher werfen!
+    # RAM-Optimierung
     rm(df_delta)
     gc()
 
-    # 4. Primary Key dynamisch nach Endpunkt bestimmen
+    # 6. Primary Key dynamisch bestimmen
     pk_cols <- switch(endpoint,
       "orders"    = c("order_id", "item_id"),
       "products"  = "variants_id",
@@ -193,25 +204,36 @@ update_shopify_data <- function(datadir = "~/data",
       "id" # Fallback
     )
 
-    # 5. RAM-schonenden Upsert durchfuehren
-    message("💾 Fuehre datenbankbasierten Upsert (inkl. Schema-Check) aus...")
+    # 7. Upsert in die KOPIE durchfuehren
+    message("💾 Fuehre datenbankbasierten Upsert (inkl. Schema-Check) in Schatten-DB aus...")
     perform_duckdb_upsert(con, df_clean, endpoint, pk_cols)
 
-    # RAM-Optimierung: Nach erfolgreichem Insert das saubere Dataframe aus dem Speicher werfen!
     rm(df_clean)
     gc()
 
-    message("✅ Shopify Deltas erfolgreich bereinigt und in DuckDB integriert.")
+    message("✅ Shopify Deltas erfolgreich in Schatten-DB integriert.")
+    update_success <- TRUE
   }, error = function(e) {
     message("❌ FEHLER beim Shopify Update: ", e$message)
-    return(invisible(FALSE))
   }, finally = {
-    # 6. Verbindung garantiert sauber schliessen, auch bei Absturz!
+    # 8. Verbindung garantiert schliessen, um File-Locks zu loesen
     if (!is.null(con) && DBI::dbIsValid(con)) {
       DBI::dbDisconnect(con, shutdown = TRUE)
-      message("🔌 Datenbankverbindung geschlossen.")
+      message("🔌 Verbindung zur Schatten-DB geschlossen.")
+    }
+
+    # 9. DER ATOMARE SWAP (Nur wenn alles erfolgreich war!)
+    if (update_success && file.exists(update_path)) {
+      # file.rename() ueberschreibt die Live-DB atomar
+      file.rename(from = update_path, to = db_path)
+      message("🔄 Atomarer Swap erfolgreich! Das Dashboard nutzt nun die aktuellsten Daten.")
+    } else {
+      message("⚠️ Update fehlgeschlagen oder abgebrochen. Live-DB bleibt unangetastet.")
+      if (file.exists(update_path)) {
+        file.remove(update_path) # Schattenkopie sicher loeschen
+      }
     }
   })
 
-  invisible(TRUE)
+  invisible(update_success)
 }
