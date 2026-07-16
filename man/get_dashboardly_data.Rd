@@ -2,24 +2,37 @@
 % Please edit documentation in R/get_dashboardly_data.R
 \name{get_dashboardly_data}
 \alias{get_dashboardly_data}
-\title{Fetch Data from Dashboardly Developer API}
+\title{Fetch All Orders from Dashboardly API}
 \usage{
-get_dashboardly_data(endpoint, api_key = Sys.getenv("DASHBOARDLY_API_KEY"))
+get_dashboardly_data(
+  shop_id,
+  start_date,
+  end_date,
+  api_key = Sys.getenv("DASHBOARDLY_API_KEY")
+)
 }
 \arguments{
-\item{endpoint}{character. Der spezifische API-Endpunkt (z. B. "sales", "orders").}
+\item{shop_id}{character. Die ID des Shops (z. B. "3d2ec700-...").}
 
-\item{api_key}{character. Dashboardly API Key. Standardmäßig aus der .Renviron geladen.}
+\item{start_date}{character. Startdatum im Format "YYYY-MM-DD".}
+
+\item{end_date}{character. Enddatum im Format "YYYY-MM-DD".}
+
+\item{api_key}{character. Dashboardly API Key. Standardmäßig via `.Renviron`.}
 }
 \value{
-Ein Tibble mit den angefragten Daten.
+Ein Tibble mit allen Bestellungen des angegebenen Zeitraums.
 }
 \description{
-Extrahierte schreibgeschützte Metriken (z. B. TikTok Shop Daten)
-  über die Dashboardly REST API. Integriert httr::RETRY für robustes Rate-Limiting.
+Holt alle paginierten Bestelldaten für einen spezifischen Shop
+  über die Dashboardly Developer API. Iteriert automatisch durch alle Seiten.
 }
 \examples{
 \dontrun{
-tiktok_sales <- get_dashboardly_data(endpoint = "sales/tiktok")
+tiktok_orders <- get_dashboardly_orders(
+  shop_id = "3d2ec700-f2a3-468b-91ba-ec8826b6ab43",
+  start_date = "2026-07-01",
+  end_date = "2026-07-08"
+)
 }
 }
