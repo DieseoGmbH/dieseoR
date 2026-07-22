@@ -10,7 +10,7 @@
 #' @return Ein bereinigtes Tibble, passend zum Endpunkt.
 #' @export
 #'
-#' @importFrom dplyr mutate filter select across any_of
+#' @importFrom dplyr mutate filter select across any_of left_join group_by summarise coalesce first ungroup bind_rows
 #' @importFrom tidyr unnest
 #' @importFrom purrr map_chr map_lgl
 #' @importFrom lubridate ymd_hms
@@ -34,7 +34,8 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
         shopify_data$cancelled_at <- NA_character_
       }
 
-      shopify_data |>
+      # Basis: Namen standardisieren + Order-Level-Felder aus Listen entpacken
+      base <- shopify_data |>
         clean_master() |>
         dplyr::mutate(
           dplyr::across(tidyselect::ends_with("_at"), ~ lubridate::ymd_hms(.)),
@@ -69,7 +70,19 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
 
           # 5. Cancellation Status (Funktioniert jetzt immer durch den Bugfix)
           cancellation_status = !is.na(cancelled_at)
-        ) |>
+        )
+
+      # 🔧 Robustheit: Order-Level-Rohspalten sicherstellen (Shopify kann sie weglassen)
+      for (.col in c("total_shipping_price_set_shop_money_amount", "shipping_address_country_code")) {
+        if (!.col %in% names(base)) base[[.col]] <- NA_character_
+      }
+
+      # 💶 Refund-Aggregate aus den verschachtelten `refunds` ziehen:
+      #    - je line_item_id: erstatteter Produktwert / Steuer / Menge (Line-Item-Grain)
+      #    - je order_id:     Return-/Restocking-Fees aus order_adjustments (Order-Grain)
+      refund_agg <- .shopify_refund_aggregates(base$refunds, base$id)
+
+      base |>
         tidyr::unnest(cols = c(line_items), names_sep = "_", keep_empty = TRUE) |>
         dplyr::select(
           # --- Standard & IDs ---
@@ -112,6 +125,7 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
 
           # --- Location & System ---
           shipping_address_country,
+          shipping_address_country_code,
           shipping_address_latitude,
           shipping_address_longitude,
           browser_ip,
@@ -119,8 +133,14 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           currency,
           landing_site,
           referring_site,
-          landing_site_ref
+          landing_site_ref,
+
+          # --- NEU: Versandumsatz (Order Level, roh) ---
+          shipping_charges = total_shipping_price_set_shop_money_amount
         ) |>
+        # Refund-Aggregate anfuegen (Line-Item- bzw. Order-Grain)
+        dplyr::left_join(refund_agg$item, by = c("item_id" = "line_item_id")) |>
+        dplyr::left_join(refund_agg$order, by = "order_id") |>
         dplyr::mutate(
           quantity = as.numeric(quantity),
           price = as.numeric(price),
@@ -128,8 +148,33 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           total_discounts = as.numeric(total_discounts),
           total_tax = as.numeric(total_tax),
           item_gross_revenue = quantity * price,
-          product_title_with_variant = paste(product_title, "-", variant_title)
-        )
+          product_title_with_variant = paste(product_title, "-", variant_title),
+
+          # ==== Sales-Report-Kennzahlen nach Shopify-Definition (aus Rohdaten) ====
+          # -- Line-Item-Grain (pro Zeile eindeutig -> summierbar) --
+          gross_sales = item_gross_revenue,
+          discount_amount = dplyr::coalesce(suppressWarnings(as.numeric(line_items_total_discount)), 0),
+          returned_amount = dplyr::coalesce(returned_amount, 0),
+          returned_tax = dplyr::coalesce(returned_tax, 0),
+          returned_quantity = dplyr::coalesce(returned_quantity, 0),
+          net_sales = gross_sales - discount_amount - returned_amount,
+
+          # -- Order-Grain (pro Order gleich, ueber die Item-Zeilen wiederholt) --
+          shipping_charges = dplyr::coalesce(suppressWarnings(as.numeric(shipping_charges)), 0),
+          return_fees = dplyr::coalesce(return_fees, 0),
+          shipping_address_country_code = toupper(shipping_address_country_code)
+        ) |>
+        dplyr::group_by(order_id) |>
+        dplyr::mutate(
+          # Netto-Steuer der Order = berechnete Steuer - erstattete Steuer
+          net_tax = dplyr::coalesce(dplyr::first(total_tax), 0) - sum(returned_tax, na.rm = TRUE),
+          # Total sales (Shopify) = Netto-Umsatz + Netto-Steuer + Versand + Return-Fees
+          total_sales = sum(net_sales, na.rm = TRUE) +
+            net_tax +
+            dplyr::first(shipping_charges) +
+            dplyr::first(return_fees)
+        ) |>
+        dplyr::ungroup()
     },
 
     # ---------------------------------------------------------
@@ -220,4 +265,82 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
   )
 
   return(cleaned_data)
+}
+
+# ---------------------------------------------------------------------------
+# Interner Helper (nicht exportiert): Refund-Aggregate aus verschachtelten
+# Shopify-`refunds`. Liefert zwei Data.Frames:
+#   $item : line_item_id, returned_amount, returned_tax, returned_quantity
+#           -> Line-Item-Grain, ueber Teil-Refunds hinweg pro line_item_id summiert.
+#   $order: order_id, return_fees
+#           -> Order-Grain; Return-/Restocking-Fees aus order_adjustments
+#              (Best-Effort: kind != 'shipping_refund'; in den aktuellen Daten meist leer).
+# Betraege werden als positive Magnituden zurueckgegeben (net_sales = gross - disc - returns).
+.shopify_refund_aggregates <- function(refunds_list, order_ids) {
+  li_rows <- list()
+  oa_rows <- list()
+
+  for (i in seq_along(refunds_list)) {
+    r <- refunds_list[[i]]
+    if (is.null(r) || !is.data.frame(r) || nrow(r) == 0) next
+    oid <- order_ids[[i]]
+
+    # -- refund_line_items: erstatteter Produktwert / Steuer / Menge je Line-Item --
+    if ("refund_line_items" %in% names(r)) {
+      for (j in seq_len(nrow(r))) {
+        rli <- r$refund_line_items[[j]]
+        if (is.data.frame(rli) && nrow(rli) > 0 && "line_item_id" %in% names(rli)) {
+          li_rows[[length(li_rows) + 1L]] <- data.frame(
+            line_item_id      = as.numeric(rli$line_item_id),
+            returned_amount   = if ("subtotal" %in% names(rli)) as.numeric(rli$subtotal) else NA_real_,
+            returned_tax      = if ("total_tax" %in% names(rli)) as.numeric(rli$total_tax) else NA_real_,
+            returned_quantity = if ("quantity" %in% names(rli)) as.numeric(rli$quantity) else NA_real_,
+            stringsAsFactors  = FALSE
+          )
+        }
+      }
+    }
+
+    # -- order_adjustments: Return-/Restocking-Fees (Order-Ebene) --
+    if ("order_adjustments" %in% names(r)) {
+      for (j in seq_len(nrow(r))) {
+        oa <- r$order_adjustments[[j]]
+        if (is.data.frame(oa) && nrow(oa) > 0 && "amount" %in% names(oa)) {
+          kind <- if ("kind" %in% names(oa)) as.character(oa$kind) else rep(NA_character_, nrow(oa))
+          amt <- suppressWarnings(as.numeric(oa$amount))
+          # Fee = einbehaltener Betrag (negativer adjustment amount), ohne reine Versand-Refunds
+          fee <- sum(-amt[!is.na(kind) & kind != "shipping_refund"], na.rm = TRUE)
+          oa_rows[[length(oa_rows) + 1L]] <- data.frame(
+            order_id = oid, return_fees = fee, stringsAsFactors = FALSE
+          )
+        }
+      }
+    }
+  }
+
+  item_agg <- if (length(li_rows) > 0) {
+    dplyr::bind_rows(li_rows) |>
+      dplyr::group_by(line_item_id) |>
+      dplyr::summarise(
+        returned_amount = sum(returned_amount, na.rm = TRUE),
+        returned_tax = sum(returned_tax, na.rm = TRUE),
+        returned_quantity = sum(returned_quantity, na.rm = TRUE),
+        .groups = "drop"
+      )
+  } else {
+    data.frame(
+      line_item_id = numeric(0), returned_amount = numeric(0),
+      returned_tax = numeric(0), returned_quantity = numeric(0)
+    )
+  }
+
+  order_agg <- if (length(oa_rows) > 0) {
+    dplyr::bind_rows(oa_rows) |>
+      dplyr::group_by(order_id) |>
+      dplyr::summarise(return_fees = sum(return_fees, na.rm = TRUE), .groups = "drop")
+  } else {
+    data.frame(order_id = numeric(0), return_fees = numeric(0))
+  }
+
+  list(item = item_agg, order = order_agg)
 }

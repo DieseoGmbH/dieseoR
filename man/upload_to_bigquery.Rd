@@ -8,7 +8,8 @@ upload_to_bigquery(
   data,
   dataset_id = "support_analytics",
   table_id,
-  json_key_path = "~/git/dieseoR/scripts/data-analytics-491117-58f718e1ee61.json",
+  json_key_path =
+    "~/git/dieseoR/scripts/auth_keys/data-analytics-491117-58f718e1ee61.json",
   write_disposition = "WRITE_APPEND"
 )
 }
