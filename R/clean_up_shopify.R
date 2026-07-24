@@ -10,10 +10,11 @@
 #' @return Ein bereinigtes Tibble, passend zum Endpunkt.
 #' @export
 #'
-#' @importFrom dplyr mutate filter select across any_of left_join group_by summarise coalesce first ungroup bind_rows
+#' @importFrom dplyr mutate filter select across any_of left_join group_by summarise coalesce first ungroup bind_rows na_if
 #' @importFrom tidyr unnest
 #' @importFrom purrr map_chr map_lgl
 #' @importFrom lubridate ymd_hms
+#' @importFrom stringr str_to_title
 #' @importFrom tidyselect ends_with starts_with
 clean_up_shopify <- function(shopify_data, endpoint = "orders") {
   # Sicherheits-Check: Falls ein leerer Chunk uebergeben wird
@@ -73,9 +74,30 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
         )
 
       # 🔧 Robustheit: Order-Level-Rohspalten sicherstellen (Shopify kann sie weglassen)
-      for (.col in c("total_shipping_price_set_shop_money_amount", "shipping_address_country_code")) {
+      for (.col in c(
+        "total_shipping_price_set_shop_money_amount", "shipping_address_country_code",
+        "customer_first_name", "customer_last_name",
+        "billing_address_first_name", "billing_address_last_name",
+        "shipping_address_first_name", "shipping_address_last_name"
+      )) {
         if (!.col %in% names(base)) base[[.col]] <- NA_character_
       }
+
+      # 👤 Kundenname (Order-Level). clean_master() hat alle Textspalten ge-lowercased
+      # -> fuer die Anzeige title-case. Quelle-Prioritaet: customer -> billing -> shipping.
+      base <- base |>
+        dplyr::mutate(
+          first_name = stringr::str_to_title(dplyr::coalesce(
+            dplyr::na_if(customer_first_name, ""),
+            dplyr::na_if(billing_address_first_name, ""),
+            dplyr::na_if(shipping_address_first_name, "")
+          )),
+          last_name = stringr::str_to_title(dplyr::coalesce(
+            dplyr::na_if(customer_last_name, ""),
+            dplyr::na_if(billing_address_last_name, ""),
+            dplyr::na_if(shipping_address_last_name, "")
+          ))
+        )
 
       # 💶 Refund-Aggregate aus den verschachtelten `refunds` ziehen:
       #    - je line_item_id: erstatteter Produktwert / Steuer / Menge (Line-Item-Grain)
@@ -89,6 +111,8 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           order_id = id,
           shopify_order_name = name,
           identity = email,
+          first_name,
+          last_name,
           created_at,
           fulfillment_date,
           sales_channel = source_name,
