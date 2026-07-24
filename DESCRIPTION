@@ -22,6 +22,9 @@ Imports:
     devtools,
     dplyr,
     duckdb,
+    fable,
+    fabletools,
+    feasts,
     httr,
     httr2,
     janitor,
@@ -31,9 +34,11 @@ Imports:
     purrr,
     readxl,
     stringr,
+    tibble,
     tidyr,
     tidyselect,
     tidytext,
+    tsibble,
     udpipe,
     zoo
 Config/roxygen2/version: 8.0.0
