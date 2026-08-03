@@ -10,7 +10,7 @@
 #' @return Ein bereinigtes Tibble, passend zum Endpunkt.
 #' @export
 #'
-#' @importFrom dplyr mutate filter select across any_of left_join group_by summarise coalesce first ungroup bind_rows na_if
+#' @importFrom dplyr mutate filter select across any_of left_join group_by summarise coalesce first ungroup bind_rows na_if if_else
 #' @importFrom tidyr unnest
 #' @importFrom purrr map_chr map_lgl
 #' @importFrom lubridate ymd_hms
@@ -99,13 +99,78 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           ))
         )
 
+      # 🧾 Order-Level-Steuer aus den `tax_lines` ziehen.
+      #    Grund: Bei TikTok-Shop-Bestellungen liefert Shopify `total_tax = 0`,
+      #    obwohl die Steuer in `tax_lines` (und `current_total_tax`) sehr wohl
+      #    ausgewiesen ist. Seit April 2026 betrifft das 6-10 % aller Orders.
+      #    `total_tax` bleibt unveraendert (Roh-API-Wert), `total_tax_effective`
+      #    ist der belastbare Wert fuer jede Steuerrechnung.
+      base <- base |>
+        dplyr::mutate(
+          order_tax_lines_total = .sum_nested(tax_lines, "price"),
+          tax_rates_n           = .count_nested_distinct(tax_lines, "rate"),
+          tax_rate_primary      = .top_nested_by(tax_lines, "rate", "price")
+        )
+
       # 💶 Refund-Aggregate aus den verschachtelten `refunds` ziehen:
       #    - je line_item_id: erstatteter Produktwert / Steuer / Menge (Line-Item-Grain)
-      #    - je order_id:     Return-/Restocking-Fees aus order_adjustments (Order-Grain)
+      #    - je order_id:     Return-Fees, Versand-Erstattungen und die
+      #                       vollstaendige order_adjustments-Summe (Order-Grain)
       refund_agg <- .shopify_refund_aggregates(base$refunds, base$id)
 
-      base |>
-        tidyr::unnest(cols = c(line_items), names_sep = "_", keep_empty = TRUE) |>
+      # ⚡ SPEICHER: Verschachtelte Order-Spalten VOR dem unnest wegwerfen.
+      #    unnest() vervielfacht jede Order-Zeile auf ~2,4 Positionszeilen und
+      #    kopiert dabei auch die grossen Listenspalten mit. Alles, was daraus
+      #    gebraucht wird, ist oben bereits aggregiert (payment_method,
+      #    discount_code, first_refund_datetime, fulfillment_date,
+      #    order_tax_lines_total, refund_agg). Ohne diesen Schritt braucht ein
+      #    Delta von 200k Orders >12 GB Zwischenspeicher und die Maschine swappt.
+      .drop_nested <- c(
+        "refunds", "fulfillments", "discount_applications", "discount_codes",
+        "payment_gateway_names", "note_attributes", "tax_lines", "shipping_lines",
+        "refunds_transactions", "shipping_lines_tax_lines"
+      )
+      base <- base |> dplyr::select(-dplyr::any_of(.drop_nested))
+      gc(verbose = FALSE)
+
+      flat <- base |>
+        tidyr::unnest(cols = c(line_items), names_sep = "_", keep_empty = TRUE)
+      rm(base)
+      gc(verbose = FALSE)
+
+      # 🏷️ Positions-Rabatte VOLLSTAENDIG erfassen.
+      #    `line_items.total_discount` enthaelt nur Rabatte auf Positionsebene.
+      #    Order-Level-Rabattcodes verteilt Shopify ueber `discount_allocations`;
+      #    ohne sie fehlen 76-89 % des Rabattvolumens.
+      #    Robustheit: Shopify laesst die Listenspalten bei leeren Chunks weg.
+      for (.lc in c("line_items_discount_allocations", "line_items_tax_lines")) {
+        if (!.lc %in% names(flat)) flat[[.lc]] <- vector("list", nrow(flat))
+      }
+
+      # 🔧 Robustheit: Enthaelt ein Chunk ausschliesslich Orders ohne Line Items,
+      #    legt unnest() keine line_items_*-Spalten an und das select() unten
+      #    bricht ab. Fehlende Spalten typrichtig vorbelegen.
+      for (.lc in c(
+        "line_items_id", "line_items_quantity", "line_items_current_quantity",
+        "line_items_price", "line_items_product_id", "line_items_variant_id",
+        "line_items_total_discount"
+      )) {
+        if (!.lc %in% names(flat)) flat[[.lc]] <- NA_real_
+      }
+      for (.lc in c(
+        "line_items_sku", "line_items_title", "line_items_variant_title",
+        "line_items_fulfillment_status"
+      )) {
+        if (!.lc %in% names(flat)) flat[[.lc]] <- NA_character_
+      }
+
+      flat <- flat |>
+        dplyr::mutate(
+          discount_amount_allocated = .sum_nested(line_items_discount_allocations, "amount"),
+          line_item_tax             = .sum_nested(line_items_tax_lines, "price")
+        )
+
+      flat |>
         dplyr::select(
           # --- Standard & IDs ---
           order_id = id,
@@ -160,7 +225,14 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           landing_site_ref,
 
           # --- NEU: Versandumsatz (Order Level, roh) ---
-          shipping_charges = total_shipping_price_set_shop_money_amount
+          shipping_charges = total_shipping_price_set_shop_money_amount,
+
+          # --- NEU: Steuer- und Rabatt-Korrekturen (siehe Kommentare oben) ---
+          order_tax_lines_total,
+          tax_rates_n,
+          tax_rate_primary,
+          discount_amount_allocated,
+          line_item_tax
         ) |>
         # Refund-Aggregate anfuegen (Line-Item- bzw. Order-Grain)
         dplyr::left_join(refund_agg$item, by = c("item_id" = "line_item_id")) |>
@@ -186,7 +258,31 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           # -- Order-Grain (pro Order gleich, ueber die Item-Zeilen wiederholt) --
           shipping_charges = dplyr::coalesce(suppressWarnings(as.numeric(shipping_charges)), 0),
           return_fees = dplyr::coalesce(return_fees, 0),
-          shipping_address_country_code = toupper(shipping_address_country_code)
+          shipping_address_country_code = toupper(shipping_address_country_code),
+
+          # ==== KORREKTUR-SPALTEN (additiv!) ====
+          # Bestehende Spalten behalten bewusst ihre Semantik. Die Delta-Pipeline
+          # berueht nur geaenderte Orders; wuerde man `discount_amount` oder
+          # `total_tax` in-place korrigieren, haette dieselbe Spalte je nach
+          # letztem Update-Zeitpunkt zwei verschiedene Bedeutungen. Neue Spalten
+          # sind bis zum Backfill NULL — das ist erkennbar, eine gemischte
+          # Semantik waere es nicht.
+
+          # -- Steuer: tax_lines schlagen total_tax, wenn dieses 0 ist (TikTok) --
+          order_tax_lines_total = dplyr::coalesce(order_tax_lines_total, 0),
+          total_tax_effective = dplyr::if_else(
+            dplyr::coalesce(total_tax, 0) == 0 & order_tax_lines_total > 0,
+            order_tax_lines_total,
+            dplyr::coalesce(total_tax, 0)
+          ),
+
+          # -- Refund-Bestandteile fuer die Portal-Abstimmung --
+          refund_adjustments_total = dplyr::coalesce(refund_adjustments_total, 0),
+          refund_shipping_total = dplyr::coalesce(refund_shipping_total, 0),
+
+          # -- Korrigierte Sales-Kennzahlen auf Basis der vollstaendigen Rabatte --
+          net_sales_corrected = gross_sales -
+            dplyr::coalesce(discount_amount_allocated, discount_amount) - returned_amount
         ) |>
         dplyr::group_by(order_id) |>
         dplyr::mutate(
@@ -195,6 +291,14 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           # Total sales (Shopify) = Netto-Umsatz + Netto-Steuer + Versand + Return-Fees
           total_sales = sum(net_sales, na.rm = TRUE) +
             net_tax +
+            dplyr::first(shipping_charges) +
+            dplyr::first(return_fees),
+
+          # Korrigierte Varianten (vollstaendige Rabatte + tax_lines-Steuer)
+          net_tax_effective = dplyr::coalesce(dplyr::first(total_tax_effective), 0) -
+            sum(returned_tax, na.rm = TRUE),
+          total_sales_corrected = sum(net_sales_corrected, na.rm = TRUE) +
+            net_tax_effective +
             dplyr::first(shipping_charges) +
             dplyr::first(return_fees)
         ) |>
@@ -292,6 +396,60 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
 }
 
 # ---------------------------------------------------------------------------
+# Interne Helper (nicht exportiert) fuer verschachtelte Shopify-Strukturen.
+# Alle arbeiten auf einer Liste von Data.Frames (eine Liste je Zeile) und geben
+# einen Vektor derselben Laenge zurueck -> direkt in dplyr::mutate() nutzbar.
+# ---------------------------------------------------------------------------
+
+# Summe eines numerischen Feldes ueber die verschachtelten Data.Frames.
+.sum_nested <- function(lst, feld) {
+  if (is.null(lst)) {
+    return(numeric(0))
+  }
+  vapply(lst, function(x) {
+    if (is.data.frame(x) && nrow(x) > 0 && feld %in% names(x)) {
+      sum(suppressWarnings(as.numeric(x[[feld]])), na.rm = TRUE)
+    } else {
+      0
+    }
+  }, numeric(1))
+}
+
+# Anzahl verschiedener Werte eines Feldes (z. B. wie viele Steuersaetze je Order).
+.count_nested_distinct <- function(lst, feld) {
+  if (is.null(lst)) {
+    return(integer(0))
+  }
+  vapply(lst, function(x) {
+    if (is.data.frame(x) && nrow(x) > 0 && feld %in% names(x)) {
+      v <- suppressWarnings(as.numeric(x[[feld]]))
+      length(unique(v[!is.na(v)]))
+    } else {
+      0L
+    }
+  }, integer(1))
+}
+
+# Wert von `feld` in der Zeile mit dem groessten `gewicht` (z. B. dominanter Steuersatz).
+.top_nested_by <- function(lst, feld, gewicht) {
+  if (is.null(lst)) {
+    return(numeric(0))
+  }
+  vapply(lst, function(x) {
+    if (is.data.frame(x) && nrow(x) > 0 && all(c(feld, gewicht) %in% names(x))) {
+      v <- suppressWarnings(as.numeric(x[[feld]]))
+      w <- suppressWarnings(as.numeric(x[[gewicht]]))
+      if (all(is.na(w))) {
+        return(NA_real_)
+      }
+      v[which.max(replace(w, is.na(w), -Inf))]
+    } else {
+      NA_real_
+    }
+  }, numeric(1))
+}
+
+# ---------------------------------------------------------------------------
 # Interner Helper (nicht exportiert): Refund-Aggregate aus verschachtelten
 # Shopify-`refunds`. Liefert zwei Data.Frames:
 #   $item : line_item_id, returned_amount, returned_tax, returned_quantity
@@ -325,7 +483,13 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
       }
     }
 
-    # -- order_adjustments: Return-/Restocking-Fees (Order-Ebene) --
+    # -- order_adjustments: Return-Fees, Versand-Erstattungen, Gesamtsumme --
+    #    Zwei Kinds kommen in den Pammys-Daten vor:
+    #      refund_discrepancy : positiver Betrag, korrigiert einen Refund nach unten
+    #                           (u. a. fehlgeschlagene Viva-Erstattungen)
+    #      shipping_refund    : negativer Betrag, erhoeht den Refund um den Versand
+    #    Adtribute rechnet Refund = SUM(refund_line_items.subtotal) - SUM(adjustments.amount).
+    #    `refund_adjustments_total` haelt die Rohsumme, damit das reproduzierbar ist.
     if ("order_adjustments" %in% names(r)) {
       for (j in seq_len(nrow(r))) {
         oa <- r$order_adjustments[[j]]
@@ -335,7 +499,11 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
           # Fee = einbehaltener Betrag (negativer adjustment amount), ohne reine Versand-Refunds
           fee <- sum(-amt[!is.na(kind) & kind != "shipping_refund"], na.rm = TRUE)
           oa_rows[[length(oa_rows) + 1L]] <- data.frame(
-            order_id = oid, return_fees = fee, stringsAsFactors = FALSE
+            order_id = oid,
+            return_fees = fee,
+            refund_adjustments_total = sum(amt, na.rm = TRUE),
+            refund_shipping_total = sum(amt[!is.na(kind) & kind == "shipping_refund"], na.rm = TRUE),
+            stringsAsFactors = FALSE
           )
         }
       }
@@ -361,9 +529,17 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
   order_agg <- if (length(oa_rows) > 0) {
     dplyr::bind_rows(oa_rows) |>
       dplyr::group_by(order_id) |>
-      dplyr::summarise(return_fees = sum(return_fees, na.rm = TRUE), .groups = "drop")
+      dplyr::summarise(
+        return_fees = sum(return_fees, na.rm = TRUE),
+        refund_adjustments_total = sum(refund_adjustments_total, na.rm = TRUE),
+        refund_shipping_total = sum(refund_shipping_total, na.rm = TRUE),
+        .groups = "drop"
+      )
   } else {
-    data.frame(order_id = numeric(0), return_fees = numeric(0))
+    data.frame(
+      order_id = numeric(0), return_fees = numeric(0),
+      refund_adjustments_total = numeric(0), refund_shipping_total = numeric(0)
+    )
   }
 
   list(item = item_agg, order = order_agg)
