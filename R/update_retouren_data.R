@@ -1,0 +1,240 @@
+# ==============================================================================
+# SCRIPT: R/update_retouren_data.R
+# PACKAGE: dieseoR
+# ==============================================================================
+
+#' @title Update der Retourendaten (Rate-Limit-bewusst, wiederaufnehmbar)
+#'
+#' @description Laedt Retouren aus dem Retourenportal und fuehrt sie per Upsert
+#' (Schluessel: `id`) mit dem lokalen Bestand zusammen.
+#'
+#' **Warum hier kein echtes Delta moeglich ist:** die API kennt (Stand 10.08.2026)
+#' weder einen `updated_since`-Filter noch Sortier-Parameter, deckelt `per_page`
+#' auf 100 und limitiert auf 60 Requests/Minute. Sie liefert immer nach `id`
+#' aufsteigend. Ein Datensatz vom Januar, dessen Refund heute gebucht wird,
+#' bleibt daher an seiner alten Position -- man findet ihn nur, wenn man alle
+#' Seiten durchgeht (`mode = "full"`).
+#'
+#' Zwei Modi:
+#' \itemize{
+#'   \item `"full"` -- alle Seiten. Faengt auch nachtraegliche Aenderungen an
+#'     alten Retouren ein. Untergrenze durch das Rate-Limit: ca. 75-80 Minuten.
+#'   \item `"tail"` -- nur die Seiten ab der hoechsten lokal bekannten `id`.
+#'     Die noetige Seitenzahl wird selbst ermittelt (die API liefert `id`
+#'     aufsteigend), es gibt also keine fixe Fenstergroesse, die zu klein
+#'     geraten kann. Holt alle Neuzugaenge, aber **keine** Aenderungen an
+#'     alten Datensaetzen.
+#' }
+#' Empfehlung: `"full"` einmal taeglich im Nachtlauf, `"tail"` fuer schnelle
+#' Zwischenupdates tagsueber.
+#'
+#' Die Seiten werden waehrend des Laufs in Chunks zwischengespeichert. Bricht
+#' der Lauf ab, setzt der naechste mit `resume = TRUE` dort fort, statt wieder
+#' bei Seite 1 zu beginnen.
+#'
+#' @param api_key Character. API-Key fuer den Header `N8N-API-KEY`.
+#' @param base_url Character. Basis-URL des Endpunkts (ohne Query-Parameter).
+#' @param datadir Character. Zentrales Datenverzeichnis. Default `"~/data"`.
+#' @param filename Character. Masterdatensatz. Default `"all_returns.rds"`.
+#' @param mode Character. `"full"` oder `"tail"`. Default `"full"`.
+#' @param tail_min_pages Integer. Mindestanzahl Seiten am Ende, die `"tail"`
+#'   immer mitnimmt -- auch wenn rechnerisch weniger noetig waeren. Default 5.
+#' @param requests_per_minute Integer. Rate-Limit-Budget. Default 55 (das Limit
+#'   liegt bei 60; der Puffer faengt Parallelzugriffe anderer Clients ab).
+#' @param resume Logical. Bei `TRUE` bereits geladene Chunks dieses Laufs
+#'   wiederverwenden. Default `TRUE`.
+#' @param max_pages Integer oder NULL. Obergrenze fuer Tests. Default `NULL`.
+#'
+#' @return Invisible List mit `n_fetched`, `n_new`, `n_total` und `mode`.
+#'
+#' @importFrom httr RETRY GET add_headers content status_code timeout headers
+#' @importFrom jsonlite fromJSON
+#' @importFrom dplyr bind_rows distinct
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' # Nachtlauf: vollstaendig, faengt auch Late-Arriving-Refunds
+#' update_retouren_data(
+#'   api_key = Sys.getenv("RETOUREN_API_KEY"),
+#'   base_url = "https://retoure-api.pammys.com/api/all-returns"
+#' )
+#'
+#' # Schnelles Zwischenupdate: nur Neuzugaenge
+#' update_retouren_data(
+#'   api_key = Sys.getenv("RETOUREN_API_KEY"),
+#'   base_url = "https://retoure-api.pammys.com/api/all-returns",
+#'   mode = "tail"
+#' )
+#' }
+update_retouren_data <- function(api_key,
+                                 base_url,
+                                 datadir = "~/data",
+                                 filename = "all_returns.rds",
+                                 mode = c("full", "tail"),
+                                 tail_min_pages = 5,
+                                 requests_per_minute = 55,
+                                 resume = TRUE,
+                                 max_pages = NULL) {
+  mode <- match.arg(mode)
+  if (missing(api_key) || api_key == "") stop("api_key muss uebergeben werden.")
+  if (missing(base_url) || base_url == "") stop("base_url muss uebergeben werden.")
+
+  returns_dir <- file.path(datadir, "returns")
+  chunk_dir <- file.path(returns_dir, "raw_chunks")
+  if (!dir.exists(chunk_dir)) dir.create(chunk_dir, recursive = TRUE)
+  file_path <- file.path(returns_dir, filename)
+
+  hdr <- httr::add_headers(`N8N-API-KEY` = api_key)
+  min_gap <- 60 / requests_per_minute # Mindestabstand zwischen Request-STARTS
+
+  # Die Antwortzeit zaehlt gegen das Rate-Limit-Budget: nur die Restzeit bis zum
+  # naechsten erlaubten Start abwarten, statt pauschal eine Sekunde zu schlafen.
+  # Das allein spart bei ~4.500 Seiten rund eine Stunde.
+  fetch_page <- function(page) {
+    t_start <- Sys.time()
+    resp <- httr::RETRY(
+      verb = "GET", url = base_url,
+      query = list(per_page = 100, page = page),
+      config = hdr, times = 5, pause_base = 3, quiet = TRUE, httr::timeout(180)
+    )
+    if (httr::status_code(resp) != 200) {
+      stop(sprintf("API-Fehler auf Seite %d: Status %d", page, httr::status_code(resp)))
+    }
+    parsed <- jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"),
+      flatten = TRUE
+    )
+    elapsed <- as.numeric(difftime(Sys.time(), t_start, units = "secs"))
+    if (elapsed < min_gap) Sys.sleep(min_gap - elapsed)
+    parsed
+  }
+
+  # --- 1. Erste Seite: Gesamtumfang ermitteln ------------------------------
+  head_page <- fetch_page(1)
+  last_page <- head_page$data$last_page
+  total_api <- head_page$data$total
+  if (is.null(last_page)) stop("Antwort ohne 'last_page' -- API-Format geaendert?")
+
+  # --- Startseite bestimmen -------------------------------------------------
+  # Die API liefert nach `id` aufsteigend. Im tail-Modus reicht es daher, ab der
+  # Seite zu laden, auf der die hoechste lokal bekannte id liegt. Diese Seite
+  # wird per Binaersuche gefunden (~12 Requests statt Raten), damit ein grosser
+  # Rueckstand nicht stillschweigend durch ein zu kleines Fenster faellt.
+  first_page <- 1L
+  if (mode == "tail") {
+    max_local <- NA_real_
+    if (file.exists(file_path)) {
+      loc <- readRDS(file_path)
+      if ("id" %in% names(loc) && nrow(loc) > 0) max_local <- max(loc$id, na.rm = TRUE)
+    }
+    if (is.na(max_local)) {
+      stop("mode = 'tail' braucht einen lokalen Bestand mit 'id'. Erstlauf bitte mit mode = 'full'.")
+    }
+
+    page_min_id <- function(p) {
+      d <- fetch_page(p)$data$data
+      if (is.null(d) || !is.data.frame(d) || nrow(d) == 0) {
+        return(Inf)
+      }
+      min(d$id, na.rm = TRUE)
+    }
+    lo <- 1L
+    hi <- last_page
+    while (lo < hi) { # kleinste Seite mit min(id) > max_local
+      mid <- (lo + hi) %/% 2L
+      if (page_min_id(mid) > max_local) hi <- mid else lo <- mid + 1L
+    }
+    first_page <- max(1L, lo - tail_min_pages)
+    message(sprintf(
+      "   Hoechste lokale id: %s -> starte bei Seite %s von %s.",
+      format(max_local, big.mark = ".", decimal.mark = ","),
+      format(first_page, big.mark = ".", decimal.mark = ","),
+      format(last_page, big.mark = ".", decimal.mark = ",")
+    ))
+  }
+
+  pages <- seq.int(first_page, last_page)
+  if (!is.null(max_pages)) pages <- utils::head(pages, max_pages)
+
+  message(sprintf(
+    "📥 Retouren-Sync [%s]: %s Datensaetze in %s Seiten, hole %s Seiten.",
+    mode, format(total_api, big.mark = ".", decimal.mark = ","), format(last_page, big.mark = ".", decimal.mark = ","),
+    format(length(pages), big.mark = ".", decimal.mark = ",")
+  ))
+  est_min <- length(pages) * min_gap / 60
+  message(sprintf(
+    "   Geschaetzte Dauer bei %d Req/Min: ~%.0f Minuten.",
+    requests_per_minute, est_min
+  ))
+
+  # Chunk-Ablage pro Lauf: erlaubt Resume nach Abbruch.
+  run_tag <- format(Sys.Date(), "%Y%m%d")
+  chunk_file <- function(p) file.path(chunk_dir, sprintf("returns_%s_%s_p%05d.rds", run_tag, mode, p))
+
+  collected <- list()
+  n_cached <- 0L
+  t0 <- Sys.time()
+
+  for (k in seq_along(pages)) {
+    p <- pages[k]
+    cf <- chunk_file(p)
+
+    if (resume && file.exists(cf)) {
+      collected[[length(collected) + 1L]] <- readRDS(cf)
+      n_cached <- n_cached + 1L
+      next
+    }
+
+    parsed <- if (p == 1L && k == 1L) head_page else fetch_page(p)
+    d <- parsed$data$data
+    if (is.null(d) || !is.data.frame(d) || nrow(d) == 0) next
+
+    saveRDS(d, cf)
+    collected[[length(collected) + 1L]] <- d
+
+    if (k %% 250 == 0 || k == length(pages)) {
+      el <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
+      message(sprintf(
+        "   Seite %s/%s (%.0f%%) | %.1f Min gelaufen", format(k, big.mark = ".", decimal.mark = ","),
+        format(length(pages), big.mark = ".", decimal.mark = ","), 100 * k / length(pages), el
+      ))
+    }
+  }
+
+  if (n_cached > 0) message(sprintf("   (%d Seiten aus Chunk-Cache wiederverwendet)", n_cached))
+
+  if (length(collected) == 0) {
+    message("⚠️ Keine Daten geladen -- Bestand bleibt unveraendert.")
+    return(invisible(list(
+      n_fetched = 0L, n_new = 0L, mode = mode,
+      n_total = if (file.exists(file_path)) nrow(readRDS(file_path)) else 0L
+    )))
+  }
+
+  fetched <- dplyr::bind_rows(collected) |> dplyr::distinct(id, .keep_all = TRUE)
+  message(sprintf("🔄 %s Datensaetze geladen.", format(nrow(fetched), big.mark = ".", decimal.mark = ",")))
+
+  # --- 2. Upsert: frisch geladene Zeile gewinnt ----------------------------
+  n_before <- 0L
+  final <- fetched
+  if (file.exists(file_path)) {
+    old <- readRDS(file_path)
+    n_before <- nrow(old)
+    final <- dplyr::bind_rows(fetched, old) |> dplyr::distinct(id, .keep_all = TRUE)
+  }
+
+  saveRDS(final, file = file_path)
+  message(sprintf(
+    "💾 Gespeichert: %s (%s gesamt, %s neu).", file_path,
+    format(nrow(final), big.mark = ".", decimal.mark = ","),
+    format(nrow(final) - n_before, big.mark = ".", decimal.mark = ",")
+  ))
+
+  # Chunks des erfolgreichen Laufs aufraeumen -- sie haben ihren Zweck erfuellt.
+  unlink(list.files(chunk_dir, pattern = sprintf("^returns_%s_%s_", run_tag, mode), full.names = TRUE))
+
+  invisible(list(
+    n_fetched = nrow(fetched), n_new = nrow(final) - n_before,
+    n_total = nrow(final), mode = mode
+  ))
+}
