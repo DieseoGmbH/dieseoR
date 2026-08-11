@@ -43,6 +43,13 @@
 #'   liegt bei 60; der Puffer faengt Parallelzugriffe anderer Clients ab).
 #' @param resume Logical. Bei `TRUE` bereits geladene Chunks dieses Laufs
 #'   wiederverwenden. Default `TRUE`.
+#' @param try_since_filter Logical. Prueft zu Beginn, ob die API inzwischen
+#'   einen serverseitigen updated_at-Filter unterstuetzt (erkannt daran, dass
+#'   `total` kleiner wird). Falls ja, wird nur noch das Delta geladen und der
+#'   Full-Sweep entfaellt -- ohne dass hier etwas geaendert werden muss.
+#'   Default `TRUE`.
+#' @param buffer_hours Integer. Sicherheitspuffer in Stunden fuer den
+#'   erkannten Filter. Default 24.
 #' @param max_pages Integer oder NULL. Obergrenze fuer Tests. Default `NULL`.
 #'
 #' @return Invisible List mit `n_fetched`, `n_new`, `n_total` und `mode`.
@@ -75,6 +82,8 @@ update_retouren_data <- function(api_key,
                                  tail_min_pages = 5,
                                  requests_per_minute = 55,
                                  resume = TRUE,
+                                 try_since_filter = TRUE,
+                                 buffer_hours = 24,
                                  max_pages = NULL) {
   mode <- match.arg(mode)
   if (missing(api_key) || api_key == "") stop("api_key muss uebergeben werden.")
@@ -88,18 +97,25 @@ update_retouren_data <- function(api_key,
   hdr <- httr::add_headers(`N8N-API-KEY` = api_key)
   min_gap <- 60 / requests_per_minute # Mindestabstand zwischen Request-STARTS
 
+  # Zusatz-Query, die jedem Request angehaengt wird (z.B. ein erkannter
+  # updated_at-Filter). Leer, solange die API keinen unterstuetzt.
+  extra_query <- list()
+
   # Die Antwortzeit zaehlt gegen das Rate-Limit-Budget: nur die Restzeit bis zum
   # naechsten erlaubten Start abwarten, statt pauschal eine Sekunde zu schlafen.
   # Das allein spart bei ~4.500 Seiten rund eine Stunde.
-  fetch_page <- function(page) {
+  fetch_query <- function(q) {
     t_start <- Sys.time()
     resp <- httr::RETRY(
-      verb = "GET", url = base_url,
-      query = list(per_page = 100, page = page),
+      verb = "GET", url = base_url, query = q,
       config = hdr, times = 5, pause_base = 3, quiet = TRUE, httr::timeout(180)
     )
     if (httr::status_code(resp) != 200) {
-      stop(sprintf("API-Fehler auf Seite %d: Status %d", page, httr::status_code(resp)))
+      stop(sprintf(
+        "API-Fehler (Query %s): Status %d",
+        paste(names(q), unlist(q), sep = "=", collapse = "&"),
+        httr::status_code(resp)
+      ))
     }
     parsed <- jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"),
       flatten = TRUE
@@ -109,11 +125,61 @@ update_retouren_data <- function(api_key,
     parsed
   }
 
+  fetch_page <- function(page) {
+    fetch_query(c(list(per_page = 100, page = page), extra_query))
+  }
+
   # --- 1. Erste Seite: Gesamtumfang ermitteln ------------------------------
   head_page <- fetch_page(1)
   last_page <- head_page$data$last_page
   total_api <- head_page$data$total
   if (is.null(last_page)) stop("Antwort ohne 'last_page' -- API-Format geaendert?")
+
+  # --- 1b. Serverseitigen updated_at-Filter erkennen -----------------------
+  # Stand 10.08.2026 ignoriert die API jeden Filter-Parameter. Sobald sie einen
+  # unterstuetzt, ist der Full-Sweep ueberfluessig: dann liefert sie direkt nur
+  # die seit `since` geaenderten Datensaetze -- inklusive der Januar-Retoure,
+  # deren Refund heute gebucht wurde.
+  # Erkennung ohne Doku: greift der Filter, MUSS `total` kleiner werden.
+  # Faellt der Test negativ aus, bleibt es beim bisherigen Verhalten.
+  detect_since_filter <- function(since_date) {
+    for (nm in c("updated_since", "updated_at_min", "updated_from", "since")) {
+      q <- list(per_page = 1)
+      q[[nm]] <- since_date
+      probe <- try(fetch_query(q), silent = TRUE)
+      if (inherits(probe, "try-error")) next
+      tot <- probe$data$total
+      if (!is.null(tot) && !is.na(tot) && tot < total_api) {
+        return(nm)
+      }
+    }
+    NULL
+  }
+
+  if (mode == "full" && isTRUE(try_since_filter) && file.exists(file_path)) {
+    loc <- readRDS(file_path)
+    if ("updated_at" %in% names(loc) && nrow(loc) > 0) {
+      last_upd <- suppressWarnings(max(as.POSIXct(loc$updated_at,
+        format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC"
+      ), na.rm = TRUE))
+      if (is.finite(last_upd)) {
+        since_date <- format(last_upd - buffer_hours * 3600, "%Y-%m-%d %H:%M:%S")
+        since_param <- detect_since_filter(since_date)
+        if (!is.null(since_param)) {
+          message(sprintf(
+            "🚀 API unterstuetzt '%s' -- lade nur Aenderungen seit %s.",
+            since_param, since_date
+          ))
+          extra_query <- stats::setNames(list(since_date), since_param)
+          head_page <- fetch_query(c(list(per_page = 100, page = 1), extra_query))
+          last_page <- head_page$data$last_page
+          total_api <- head_page$data$total
+        } else {
+          message("   (API kennt keinen updated_at-Filter -> vollstaendiger Sweep)")
+        }
+      }
+    }
+  }
 
   # --- Startseite bestimmen -------------------------------------------------
   # Die API liefert nach `id` aufsteigend. Im tail-Modus reicht es daher, ab der

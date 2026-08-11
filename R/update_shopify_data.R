@@ -182,58 +182,118 @@ update_shopify_data <- function(datadir = "~/data",
 
     if (is.null(df_delta) || nrow(df_delta) == 0) {
       message("✅ Keine neuen Daten bei Shopify gefunden. Update uebersprungen.")
-      update_success <- TRUE
-      return(invisible(TRUE)) # Beendet den TryCatch-Block erfolgreich
+    } else {
+      message(sprintf("🔄 %d neue/geaenderte Datensaetze gefunden. Starte Bereinigung...", nrow(df_delta)))
+
+      # 5. Datenflachung und Formatierung
+      df_clean <- clean_up_shopify(shopify_data = df_delta, endpoint = endpoint)
+
+      # RAM-Optimierung
+      rm(df_delta)
+      gc()
+
+      # 6. Primary Key dynamisch bestimmen
+      pk_cols <- switch(endpoint,
+        "orders"    = c("order_id", "item_id"),
+        "products"  = "variants_id",
+        "checkouts" = c("order_id", "item_id"),
+        "customers" = "id",
+        "id" # Fallback
+      )
+
+      # Ein Delta mit NULLs im PK wuerde beim Upsert Duplikate erzeugen, weil die
+      # DELETE-Klausel auf NULL nicht matcht. Lieber hier hart abbrechen.
+      pk_na <- vapply(pk_cols, function(k) sum(is.na(df_clean[[k]])), numeric(1))
+      if (any(pk_na > 0)) {
+        stop(
+          "Delta enthaelt NULLs im Primaerschluessel (",
+          paste(sprintf("%s: %d", names(pk_na), pk_na), collapse = ", "), ")."
+        )
+      }
+
+      rows_before <- DBI::dbGetQuery(
+        con, sprintf("SELECT COUNT(*) AS n FROM %s", endpoint)
+      )$n
+
+      # 7. Upsert in die KOPIE durchfuehren
+      message("💾 Fuehre datenbankbasierten Upsert (inkl. Schema-Check) in Schatten-DB aus...")
+      perform_duckdb_upsert(con, df_clean, endpoint, pk_cols)
+
+      rm(df_clean)
+      gc()
+
+      # 7b. Verifikation SOLANGE die Verbindung offen ist. Ohne diese Pruefung
+      # koennte ein halb gelungener Upsert unbemerkt live geswappt werden.
+      rows_after <- DBI::dbGetQuery(
+        con, sprintf("SELECT COUNT(*) AS n FROM %s", endpoint)
+      )$n
+      pk_str <- paste(pk_cols, collapse = ", ")
+      dupes <- DBI::dbGetQuery(con, sprintf(
+        "SELECT COUNT(*) AS n FROM (SELECT %s FROM %s GROUP BY %s HAVING COUNT(*) > 1)",
+        pk_str, endpoint, pk_str
+      ))$n
+
+      if (dupes > 0) {
+        stop(sprintf("%d doppelte Primaerschluessel nach dem Upsert.", dupes))
+      }
+      if (rows_after < rows_before) {
+        stop(sprintf(
+          "Zeilenzahl gesunken (%s -> %s) -- Datenverlust.",
+          format(rows_before, big.mark = "."), format(rows_after, big.mark = ".")
+        ))
+      }
+      message(sprintf(
+        "✅ Shopify Deltas integriert und verifiziert (%s -> %s Zeilen).",
+        format(rows_before, big.mark = "."), format(rows_after, big.mark = ".")
+      ))
     }
 
-    message(sprintf("🔄 %d neue/geaenderte Datensaetze gefunden. Starte Bereinigung...", nrow(df_delta)))
-
-    # 5. Datenflachung und Formatierung
-    df_clean <- clean_up_shopify(shopify_data = df_delta, endpoint = endpoint)
-
-    # RAM-Optimierung
-    rm(df_delta)
-    gc()
-
-    # 6. Primary Key dynamisch bestimmen
-    pk_cols <- switch(endpoint,
-      "orders"    = c("order_id", "item_id"),
-      "products"  = "variants_id",
-      "customers" = "id",
-      "checkouts" = c("order_id", "item_id"),
-      "id" # Fallback
-    )
-
-    # 7. Upsert in die KOPIE durchfuehren
-    message("💾 Fuehre datenbankbasierten Upsert (inkl. Schema-Check) in Schatten-DB aus...")
-    perform_duckdb_upsert(con, df_clean, endpoint, pk_cols)
-
-    rm(df_clean)
-    gc()
-
-    message("✅ Shopify Deltas erfolgreich in Schatten-DB integriert.")
     update_success <- TRUE
   }, error = function(e) {
     message("❌ FEHLER beim Shopify Update: ", e$message)
   }, finally = {
-    # 8. Verbindung garantiert schliessen, um File-Locks zu loesen
+    # 8. Verbindung garantiert schliessen, um File-Locks zu loesen.
+    #    NUR das -- die Swap-Entscheidung gehoert nicht in `finally`, wo ein
+    #    Fehler im Aufraeumen den Zustand verschleiert.
     if (!is.null(con) && DBI::dbIsValid(con)) {
       DBI::dbDisconnect(con, shutdown = TRUE)
       message("🔌 Verbindung zur Schatten-DB geschlossen.")
     }
-
-    # 9. DER ATOMARE SWAP (Nur wenn alles erfolgreich war!)
-    if (update_success && file.exists(update_path)) {
-      # file.rename() ueberschreibt die Live-DB atomar
-      file.rename(from = update_path, to = db_path)
-      message("🔄 Atomarer Swap erfolgreich! Das Dashboard nutzt nun die aktuellsten Daten.")
-    } else {
-      message("⚠️ Update fehlgeschlagen oder abgebrochen. Live-DB bleibt unangetastet.")
-      if (file.exists(update_path)) {
-        file.remove(update_path) # Schattenkopie sicher loeschen
-      }
-    }
   })
 
-  invisible(update_success)
+  # ---------------------------------------------------------------------------
+  # 9. DER ATOMARE SWAP -- bewusst ausserhalb von `finally`.
+  # ---------------------------------------------------------------------------
+  if (!file.exists(update_path)) {
+    if (update_success) {
+      message("ℹ️ Keine Schatten-DB vorhanden (initialer Lauf?) -- nichts zu swappen.")
+    } else {
+      message("⚠️ Update fehlgeschlagen. Live-DB bleibt unangetastet.")
+    }
+    return(invisible(update_success))
+  }
+
+  if (!update_success) {
+    # Die Schatten-DB NIEMALS loeschen: darin steckt der komplette, bereits
+    # bereinigte Delta-Abruf (mehrere Stunden API-Zeit). Frueher hat genau das
+    # ein `file.remove()` hier weggeworfen.
+    quarantine <- paste0(update_path, ".failed_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+    if (file.rename(update_path, quarantine)) {
+      message("⚠️ Update fehlgeschlagen. Live-DB bleibt unangetastet.")
+      message("   Schatten-DB aufgehoben: ", quarantine)
+      message("   -> Nachspielen ohne neuen API-Abruf:")
+      message("      Rscript ~/git/dieseoR/scripts/produktiv/reingest_shopify_chunks.R")
+    } else {
+      message("⚠️ Update fehlgeschlagen; Schatten-DB liegt weiter unter: ", update_path)
+    }
+    return(invisible(FALSE))
+  }
+
+  if (!file.rename(from = update_path, to = db_path)) {
+    message("❌ SWAP FEHLGESCHLAGEN. Schatten-DB liegt unter: ", update_path)
+    return(invisible(FALSE))
+  }
+  message("🔄 Atomarer Swap erfolgreich! Das Dashboard nutzt nun die aktuellsten Daten.")
+
+  invisible(TRUE)
 }
