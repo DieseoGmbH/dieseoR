@@ -13,6 +13,8 @@ update_retouren_data(
   tail_min_pages = 5,
   requests_per_minute = 55,
   resume = TRUE,
+  try_since_filter = TRUE,
+  buffer_hours = 24,
   max_pages = NULL
 )
 }
@@ -35,6 +37,15 @@ liegt bei 60; der Puffer faengt Parallelzugriffe anderer Clients ab).}
 
 \item{resume}{Logical. Bei `TRUE` bereits geladene Chunks dieses Laufs
 wiederverwenden. Default `TRUE`.}
+
+\item{try_since_filter}{Logical. Prueft zu Beginn, ob die API inzwischen
+einen serverseitigen updated_at-Filter unterstuetzt (erkannt daran, dass
+`total` kleiner wird). Falls ja, wird nur noch das Delta geladen und der
+Full-Sweep entfaellt -- ohne dass hier etwas geaendert werden muss.
+Default `TRUE`.}
+
+\item{buffer_hours}{Integer. Sicherheitspuffer in Stunden fuer den
+erkannten Filter. Default 24.}
 
 \item{max_pages}{Integer oder NULL. Obergrenze fuer Tests. Default `NULL`.}
 }
