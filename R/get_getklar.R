@@ -11,8 +11,21 @@
 #   * Pfade: `/v1/public/...` (versioniert), nicht `/public/...`
 #   * endDate ist EXKLUSIV (Daten bis, aber ohne diesen Tag)
 #   * Zwei-Schritt-Flow: Report anstossen -> `dataUrl` -> Seiten via `nextPage`
-#   * Kein 31-Tage-Limit und kein 2-Requests-pro-30-s-Limit (getestet:
-#     7 Monate in einem Request, 60 Seiten in Folge ohne 429)
+#   * Kein Rate-Limit (60+ Seiten in Folge ohne 429)
+#   * ZWEI Grenzen, beide endpunktabhaengig und beide verifiziert:
+#       - `attribution`: max. 31 Tage je Request. 31 Tage -> 200, 32 Tage -> 400.
+#         `attribution-detail`, `marketing` und `revenue-and-profit` haben das
+#         NICHT (revenue laeuft mit 400 Tagen). Das 31-Tage-Limit aus dem
+#         Help-Center gilt also nur fuer diesen einen Endpunkt.
+#       - Cursor endet nach 100 Seiten a 1.000 Zeilen. Seite 100 kommt ohne
+#         `nextPage`, Seite 101 liefert HTTP 200 mit leerem Ergebnis — obwohl
+#         weitere Daten existieren. Verifiziert auf `attribution` (zwei Views)
+#         und `attribution-detail`. Fuer `revenue-and-profit` und `marketing`
+#         UNGEPRUEFT: unsere Daten erreichen dort keine 100.000 Zeilen. Die
+#         Warnung in get_getklar_report() greift dort trotzdem.
+#   * Fehlermeldungen sind nicht diagnostisch: Zeitraum zu gross UND das nicht
+#     verfuegbare Modell `any_click` liefern beide denselben Text
+#     ("Bad Request - Unknown error: Request failed with status code 418").
 # ==========================================================================
 
 
@@ -250,6 +263,11 @@ get_getklar_report <- function(report,
 #' @keywords internal
 .GETKLAR_ROW_CAP <- 100000L
 
+#' Maximale Zeitraumlaenge des `attribution`-Endpunkts in Tagen (verifiziert:
+#' 31 Tage -> HTTP 200, 32 Tage -> HTTP 400).
+#' @keywords internal
+.GETKLAR_ATTRIBUTION_MAX_DAYS <- 31L
+
 
 #' @title Fetch the GetKlar Revenue & Profit Report
 #' @description Der Endpunkt fuer **Umsatzzahlen** — liefert Brutto, Netto,
@@ -446,17 +464,33 @@ get_getklar_attribution <- function(shop = "Marketing View",
   window <- match.arg(window)
   date_breakdown <- match.arg(date_breakdown)
 
-  out <- .getklar_attribution_bisect(
-    shop = shop,
-    from = as.Date(start_date),
-    to = as.Date(end_date),
-    params = list(
-      metric         = metric,
-      window         = window,
-      date_breakdown = date_breakdown
-    ),
-    api_key = api_key
-  )
+  from <- as.Date(start_date)
+  to <- as.Date(end_date)
+  if (is.na(from) || is.na(to)) stop("Ungueltiges Datum ('YYYY-MM-DD').")
+  if (to < from) stop("end_date liegt vor start_date.")
+
+  params <- list(metric = metric, window = window, date_breakdown = date_breakdown)
+
+  # Zwei unabhaengige Grenzen: (1) harte 31-Tage-Schranke des Endpunkts —
+  # deshalb VOR dem Abruf in Fenster schneiden; (2) 100.000-Zeilen-Cap, den
+  # .getklar_attribution_bisect() innerhalb jedes Fensters aufloest.
+  starts <- seq(from, to, by = paste(.GETKLAR_ATTRIBUTION_MAX_DAYS, "days"))
+
+  if (length(starts) > 1) {
+    message(sprintf(
+      "Zeitraum > %d Tage -> %d Fenster (Endpunkt-Limit)",
+      .GETKLAR_ATTRIBUTION_MAX_DAYS, length(starts)
+    ))
+  }
+
+  out <- lapply(starts, function(w_from) {
+    w_to <- min(w_from + .GETKLAR_ATTRIBUTION_MAX_DAYS - 1, to)
+    .getklar_attribution_bisect(
+      shop = shop, from = w_from, to = w_to,
+      params = params, api_key = api_key
+    )
+  }) |>
+    dplyr::bind_rows()
 
   if (nrow(out) > 0) {
     if ("date" %in% names(out)) out$date <- as.Date(out$date)

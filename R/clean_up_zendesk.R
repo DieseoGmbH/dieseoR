@@ -64,14 +64,41 @@ clean_up_zendesk <- function(input) {
       combined_text = paste(custom_fields_text, description, subject, raw_subject, sep = " "),
 
       # Primary Suche
+      #
+      # ⚠️ FIX 14.08.2026: Die alte Variante lautete
+      #   "(?<=#)\\d{8}|\\b12\\d{6}\\b|\\b\\d{8}\\b"
+      # und fing damit in JEDER Alternative exakt 8 Ziffern. Shopify-
+      # Bestellnummern haben aber inzwischen 9 Stellen (#122583030), sodass
+      # `(?<=#)\\d{8}` die letzte Ziffer abgeschnitten hat: aus 122583030
+      # wurde 12258303. Ergebnis: die Spalte liess sich faktisch nicht mehr
+      # gegen Shopify oder das Retourenportal joinen — von 438.661
+      # Retouren matchten ganze 354. Gegenprobe gegen die strukturiert aus
+      # `custom_fields` gelesenen Werte: in 239.022 von 239.166 Fällen
+      # (99,9 %) war der alte Wert exakt substr(<echte Nummer>, 1, 8).
+      #
+      # Die Alternativen stehen jetzt 9-stellig zuerst: `str_extract` wählt
+      # an einer Fundstelle die erstgenannte passende Alternative, nicht die
+      # längste. Die 8-stelligen Varianten bleiben als Fallback für die
+      # Alt-Bestellungen von vor dem Nummernwechsel erhalten.
       bestellnummer_primary = stringr::str_extract(
         combined_text,
-        "(?<=#)\\d{8}|\\b12\\d{6}\\b|\\b\\d{8}\\b"
+        "(?<=#)\\d{9}|\\b12\\d{7}\\b|(?<=#)\\d{8}|\\b12\\d{6}\\b|\\b\\d{8}\\b"
       ),
 
       # Secondary Suche
-      bestellnummer_secondary = stringr::str_extract(combined_text, "#\\d{8}") |>
+      bestellnummer_secondary = stringr::str_extract(combined_text, "#\\d{9}|#\\d{8}") |>
         stringr::str_remove("^#")
+
+      # HINWEIS: Die 13-stellige numerische Shopify-`order_id` steht zwar
+      # ebenfalls als Custom-Field in den Rohdaten, lässt sich hier aber
+      # NICHT per Regex herausziehen: `combined_text` enthält neben den
+      # Feld-*Werten* auch die Feld-*IDs*, und die sind selbst 13-stellig
+      # (z. B. 5832500351517). Ein Muster wie \\b[5-9]\\d{12}\\b trifft
+      # deshalb zu 100 % die Feld-ID statt der Bestellung — geprüft am
+      # 14.08.2026 gegen die strukturiert gelesenen Werte. Wer die order_id
+      # braucht, muss `custom_fields` vor dem Zusammenkleben auswerten
+      # (Feld-ID 27312698537501). Die 9-stellige Bestellnummer reicht als
+      # Join-Schlüssel gegen Shopify und das Retourenportal aus.
     ) |>
     dplyr::mutate(
       bestellnummer_primary = dplyr::if_else(bestellnummer_primary == "12000000", NA_character_, bestellnummer_primary),
