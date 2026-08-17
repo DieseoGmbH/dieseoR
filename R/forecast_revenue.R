@@ -48,9 +48,21 @@
 #'   Extraktion unvollständig). Default \code{TRUE}.
 #' @param min_date Optionaler Startschnitt (Date oder "YYYY-MM-DD"); frühe,
 #'   dünne Historie kann die Modelle stören. Default \code{NULL} (alles).
+#' @param countries Optionaler Vektor von ISO-2-Ländercodes des Lieferlands
+#'   (\code{shipping_address_country_code}, z. B. \code{"DE"}), auf die gefiltert
+#'   wird. \code{NULL} = alle Länder. Default \code{NULL}.
+#' @param exclude_countries Optionaler Vektor von ISO-2-Ländercodes, die
+#'   \emph{ausgeschlossen} werden — für einen "Übrige Länder"-Sammelbucket.
+#'   Zeilen ohne Ländercode gelten dabei als "übrig" und bleiben enthalten,
+#'   damit Slices + Bucket wieder die Gesamtreihe ergeben. Default \code{NULL}.
+#' @param gap_fill Umgang mit Tagen ohne Bestellung: \code{"interpolate"}
+#'   (Default — Wert fortschreiben; richtig für die dichte Gesamtreihe, die
+#'   praktisch keine Löcher hat) oder \code{"zero"} (Lücke = 0 €; richtig für
+#'   Länderreihen, wo ein fehlender Tag echte Nachfrage-Null bedeutet und
+#'   Fortschreiben Umsatz erfinden würde).
 #' @return \code{tsibble} mit Spalten \code{date} (Index, Tag) und
-#'   \code{revenue} (numeric). Fehlende Tage sind gefüllt und interpoliert.
-#' @importFrom DBI dbConnect dbGetQuery dbDisconnect dbQuoteIdentifier
+#'   \code{revenue} (numeric). Fehlende Tage sind gefüllt (siehe \code{gap_fill}).
+#' @importFrom DBI dbConnect dbGetQuery dbDisconnect dbQuoteIdentifier dbQuoteString
 #' @importFrom duckdb duckdb
 #' @importFrom dplyr mutate filter arrange
 #' @importFrom tsibble as_tsibble fill_gaps
@@ -59,29 +71,60 @@
 #' @examples
 #' \dontrun{
 #' rev <- get_daily_revenue()
-#' print(rev)
+#' rev_de <- get_daily_revenue(countries = "DE", gap_fill = "zero")
+#' rev_rest <- get_daily_revenue(exclude_countries = c("DE", "AT"), gap_fill = "zero")
 #' }
 get_daily_revenue <- function(
   duckdb_path = "~/git/dashboard/data/shopify.duckdb",
   table = "orders",
   drop_last_day = TRUE,
-  min_date = NULL
+  min_date = NULL,
+  countries = NULL,
+  exclude_countries = NULL,
+  gap_fill = c("interpolate", "zero")
 ) {
+  gap_fill <- match.arg(gap_fill)
   con <- DBI::dbConnect(duckdb::duckdb(),
     dbdir = path.expand(duckdb_path), read_only = TRUE
   )
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
+  # Ländercode normalisiert; COALESCE(...,'') ist NICHT kosmetisch: in SQL ist
+  # `NULL NOT IN (...)` das Ergebnis NULL, Zeilen ohne Land fielen sonst still
+  # aus dem Restbucket heraus und Slices + Bucket ergäben nicht mehr das Ganze.
+  cc <- "UPPER(TRIM(COALESCE(shipping_address_country_code, '')))"
+  where <- c("cancellation_status = FALSE", "created_at IS NOT NULL")
+  if (!is.null(countries)) {
+    where <- c(where, sprintf("%s IN (%s)", cc, .sql_country_list(con, countries)))
+  }
+  if (!is.null(exclude_countries)) {
+    where <- c(where, sprintf(
+      "%s NOT IN (%s)", cc,
+      .sql_country_list(con, exclude_countries)
+    ))
+  }
+
   # Aggregation in der DB -> nur ~1.500 Tageszeilen kommen im RAM an
-  sql <- sprintf("
+  sql <- sprintf(
+    "
     SELECT CAST(created_at AS DATE) AS date,
            SUM(item_gross_revenue)  AS revenue
     FROM %s
-    WHERE cancellation_status = FALSE
-      AND created_at IS NOT NULL
+    WHERE %s
     GROUP BY 1
-    ORDER BY 1", DBI::dbQuoteIdentifier(con, table))
+    ORDER BY 1",
+    DBI::dbQuoteIdentifier(con, table),
+    paste(where, collapse = "\n      AND ")
+  )
   daily <- DBI::dbGetQuery(con, sql)
+
+  if (nrow(daily) == 0) {
+    stop(
+      "get_daily_revenue(): kein Umsatz fuer diesen Filter (countries = ",
+      paste(countries, collapse = "/"), ", exclude_countries = ",
+      paste(exclude_countries, collapse = "/"), ")."
+    )
+  }
 
   daily <- daily |>
     dplyr::mutate(date = as.Date(date)) |>
@@ -94,14 +137,105 @@ get_daily_revenue <- function(
     daily <- dplyr::filter(daily, date < max(date))
   }
 
-  # Lückenlose Tageachse + fehlende Tage interpolieren (Set-Semantik: keine Löcher)
+  # Lückenlose Tageachse (Set-Semantik: keine Löcher im Index)
   ts <- daily |>
     tsibble::as_tsibble(index = date) |>
-    tsibble::fill_gaps() |>
-    tidyr::fill(revenue, .direction = "downup")
+    tsibble::fill_gaps()
+
+  if (gap_fill == "zero") {
+    ts$revenue[is.na(ts$revenue)] <- 0
+  } else {
+    ts <- tidyr::fill(ts, revenue, .direction = "downup")
+  }
 
   ts$revenue <- pmax(ts$revenue, 1) # >0 für multiplikatives Modell / log
   ts
+}
+
+
+# --- intern: Ländercodes sicher als SQL-IN-Liste quoten ----------------------
+.sql_country_list <- function(con, codes) {
+  codes <- toupper(trimws(as.character(codes)))
+  codes <- codes[!is.na(codes) & nzchar(codes)]
+  if (length(codes) == 0) {
+    return("''")
+  }
+  paste(DBI::dbQuoteString(con, codes), collapse = ", ")
+}
+
+
+#' Umsatzanteile und Reihen-Qualität je Lieferland
+#'
+#' @title get_revenue_country_shares
+#' @description Liefert je Lieferland den Umsatzanteil sowie die beiden Kennzahlen,
+#'   die darüber entscheiden, ob ein eigenes Prognosemodell überhaupt tragfähig
+#'   ist: die Länge der Historie (\code{calendar_days} — das Harmonic-ARIMA
+#'   braucht >= 2 Jahressaison-Zyklen) und die Dichte der Tagesreihe
+#'   (\code{fill_rate} — bei vielen Null-Tagen erfindet ein log-Modell Struktur,
+#'   die nicht da ist). Grundlage für die Länderauswahl in
+#'   \code{build_revenue_forecast_bundle()}. Aggregiert vollständig in DuckDB.
+#' @param duckdb_path Pfad zur DuckDB. Default: Dashboard-Data-Mart.
+#' @param table Name der Orders-Tabelle. Default \code{"orders"}.
+#' @param window_days Fenster für den Anteil (Tage, jüngste). Default \code{365}.
+#' @return tibble, absteigend nach \code{revenue_window}: \code{country}
+#'   (ISO-2, \code{NA} wenn im Shop kein Land gesetzt war), \code{revenue_window},
+#'   \code{share} (Anteil am Fenster-Umsatz), \code{revenue_total},
+#'   \code{first_date}, \code{last_date}, \code{days_with_revenue},
+#'   \code{calendar_days}, \code{fill_rate}.
+#' @importFrom DBI dbConnect dbGetQuery dbDisconnect dbQuoteIdentifier
+#' @importFrom duckdb duckdb
+#' @importFrom dplyr mutate arrange desc
+#' @importFrom tibble as_tibble
+#' @export
+#' @examples
+#' \dontrun{
+#' get_revenue_country_shares()
+#' }
+get_revenue_country_shares <- function(
+  duckdb_path = "~/git/dashboard/data/shopify.duckdb",
+  table = "orders",
+  window_days = 365
+) {
+  con <- DBI::dbConnect(duckdb::duckdb(),
+    dbdir = path.expand(duckdb_path), read_only = TRUE
+  )
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  sql <- sprintf(
+    "
+    WITH d AS (
+      SELECT UPPER(TRIM(COALESCE(shipping_address_country_code, ''))) AS country,
+             CAST(created_at AS DATE) AS date,
+             SUM(item_gross_revenue)  AS revenue
+      FROM %s
+      WHERE cancellation_status = FALSE
+        AND created_at IS NOT NULL
+      GROUP BY 1, 2
+    ), b AS (SELECT MAX(date) AS max_date FROM d)
+    SELECT d.country,
+           SUM(d.revenue)                                             AS revenue_total,
+           SUM(CASE WHEN d.date > b.max_date - %d THEN d.revenue
+                    ELSE 0 END)                                       AS revenue_window,
+           COUNT(*)                                                   AS days_with_revenue,
+           MIN(d.date)                                                AS first_date,
+           MAX(d.date)                                                AS last_date,
+           DATE_DIFF('day', MIN(d.date), MAX(b.max_date)) + 1         AS calendar_days
+    FROM d CROSS JOIN b
+    GROUP BY 1
+    ORDER BY revenue_window DESC",
+    DBI::dbQuoteIdentifier(con, table), as.integer(window_days)
+  )
+  res <- DBI::dbGetQuery(con, sql)
+
+  tibble::as_tibble(res) |>
+    dplyr::mutate(
+      country = ifelse(country == "", NA_character_, country),
+      first_date = as.Date(first_date),
+      last_date = as.Date(last_date),
+      share = revenue_window / sum(revenue_window),
+      fill_rate = days_with_revenue / calendar_days
+    ) |>
+    dplyr::arrange(dplyr::desc(revenue_window))
 }
 
 
