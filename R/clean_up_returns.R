@@ -37,6 +37,30 @@ clean_up_returns <- function(df) {
       shipping_cost_applied = as.numeric(shipping_cost_applied),
       shipping_cost         = as.numeric(shipping_cost)
     ) |>
+    # 2b. Soft-Delete des Portals als Flag retten
+    #
+    # ⚠️ NEU 26.08.2026. `deleted_at` wurde bisher zusammen mit den PII-Spalten
+    # verworfen. Das war folgenschwer: das Retourenportal *löscht* abgearbeitete
+    # bzw. verfallene Vorgänge weich, statt ihren Status zu ändern. 233.050 von
+    # 472.023 Rohzeilen (49,4 %) tragen einen `deleted_at`-Stempel und stehen
+    # trotzdem weiter auf "requested" oder "approved".
+    #
+    # Ohne dieses Flag zählt jede Rückstau-Auswertung sie als offen. Der Effekt
+    # ist nicht klein und nicht gleichverteilt — er trifft fast ausschliesslich
+    # die alten Vorgänge:
+    #     Alter der offenen Vorgänge   Anteil gelöscht
+    #     0–7 Tage                       1,2 %
+    #     31–90 Tage                     4,0 %
+    #     91–365 Tage                   20,6 %
+    #     > 365 Tage                    99,95 %
+    # Der vermeintliche Ein-Jahres-Rückstau von 45.671 Vorgängen schrumpft mit
+    # dem Flag auf 16. Allein am 20.06.2025 hat das Portal 101.169 Vorgänge auf
+    # einen Schlag weggeräumt (derselbe Tag, an dem auch 39.110 Vorgänge in
+    # einem Rutsch geschlossen wurden).
+    #
+    # Der Zeitstempel selbst bleibt draussen (er hilft fachlich nicht), das
+    # Flag genügt und kostet ein Byte pro Zeile.
+    dplyr::mutate(ist_geloescht = !is.na(deleted_at) & deleted_at != "") |>
     # 3. Unnötige und sensible Spalten (DSGVO) rauswerfen
     dplyr::select(
       -c(

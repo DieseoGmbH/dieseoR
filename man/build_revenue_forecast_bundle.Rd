@@ -11,7 +11,15 @@ build_revenue_forecast_bundle(
   to_year = 2030,
   n_folds = 9,
   net_window_days = 180,
-  generated_at = Sys.time()
+  generated_at = Sys.time(),
+  by_country = TRUE,
+  country_min_share = 0.02,
+  country_min_days = 730,
+  country_min_fill = 0.9,
+  country_other_key = "OTHER",
+  country_other_label = "Übrige Länder",
+  method = "harmonic",
+  country_methods = c("harmonic", "ets", "snaive")
 )
 }
 \arguments{
@@ -31,12 +39,40 @@ Retourenquote). \code{NULL} = Netto überspringen. Default Serving-Pfad.}
 \item{generated_at}{Zeitstempel für die Fußzeile (Skripte reichen \code{Sys.time()};
 als Parameter, weil Package-Funktionen reproduzierbar bleiben sollen).
 Default \code{Sys.time()}.}
+
+\item{by_country}{Länder-Split mitrechnen? Default \code{TRUE}.}
+
+\item{country_min_share}{Mindest-Umsatzanteil (letzte 365 Tage) für ein
+eigenes Modell. Default \code{0.02} (2 \%).}
+
+\item{country_min_days}{Mindest-Historie in Kalendertagen. Default \code{730}
+(das Harmonic-ARIMA braucht >= 2 Jahressaison-Zyklen).}
+
+\item{country_min_fill}{Mindestanteil Tage mit Umsatz an der Historie.
+Default \code{0.90}. Schützt vor log-Modellen auf löchrigen Reihen.}
+
+\item{country_other_key, country_other_label}{Schlüssel und Anzeigename des
+Sammel-Slices. Defaults \code{"OTHER"} / \code{"Übrige Länder"}.}
+
+\item{method}{Produktivmodell für alle Slices. Default \code{"harmonic"} —
+per Bake-off auf der Gesamtreihe entschieden und bewusst fest verdrahtet.
+Eine Auswahl je Slice aus dem h=28-Backtest wäre ein Fehlschluss: ETS
+gewinnt dort regelmäßig, versagt aber auf dem Produktionshorizont h~140
+(siehe Kommentar in \code{.forecast_slice}).}
+
+\item{country_methods}{Im Länder-Backtest zusätzlich mitgerechnete Modelle.
+Default alle drei — sie erscheinen als Referenzzeilen im Gütepanel, damit
+die Modellwahl je Land nachprüfbar bleibt.}
 }
 \value{
-Benannte Liste: \code{daily} (Tagesprognose brutto+netto+Bänder),
-  \code{history} (jüngste Ist-Reihe brutto+netto), \code{monthly},
+Benannte Liste. Wurzel = \strong{Gesamt}-Sicht (unverändert
+  rückwärtskompatibel): \code{daily}, \code{history}, \code{monthly},
   \code{rest_of_year}, \code{full_year}, \code{annual}, \code{scenarios},
-  \code{backtest}, \code{calibration}, \code{meta}.
+  \code{backtest}, \code{calibration}, \code{meta}. Neu:
+  \code{by_country} (benannte Liste gleich strukturierter Slices, Schlüssel =
+  ISO-2-Code bzw. \code{country_other_key}) und \code{countries}
+  (Auswahl-/Diagnosetabelle mit \code{key, label, role, share, modelled,
+  reason}).
 }
 \description{
 Orchestriert die komplette Umsatzprognose für den Dashboard-Tab
@@ -46,6 +82,14 @@ Orchestriert die komplette Umsatzprognose für den Dashboard-Tab
   Retourenquote abgeleitet und als zweite Linie/Kennzahl geführt. Alle
   schweren Berechnungen (ARIMA-Fit, Backtest-Kalibrierung) laufen hier einmal
   nächtlich.
+
+  Zusätzlich wird die Prognose nach \strong{Lieferland} aufgesplittet
+  (\code{by_country}). Ein eigenes Modell bekommt nur, wer es datenseitig
+  trägt: genug Umsatzanteil, >= 2 Jahressaison-Zyklen Historie und eine
+  ausreichend dichte Tagesreihe (Kriterien via \code{country_min_*}). Alle
+  übrigen Länder — inklusive Bestellungen ohne Ländercode — werden zu einem
+  Sammel-Slice gebündelt, damit die Slices in Summe wieder die Gesamtreihe
+  ergeben. Jeder Slice hat exakt dieselbe Struktur wie die Wurzel.
 }
 \details{
 Prognose-Bundle fürs Dashboard vorberechnen
@@ -54,5 +98,6 @@ Prognose-Bundle fürs Dashboard vorberechnen
 \dontrun{
 bundle <- build_revenue_forecast_bundle()
 saveRDS(bundle, "~/git/dashboard/data/revenue_forecast.rds")
+names(bundle$by_country)
 }
 }

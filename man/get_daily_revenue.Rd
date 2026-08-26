@@ -8,7 +8,10 @@ get_daily_revenue(
   duckdb_path = "~/git/dashboard/data/shopify.duckdb",
   table = "orders",
   drop_last_day = TRUE,
-  min_date = NULL
+  min_date = NULL,
+  countries = NULL,
+  exclude_countries = NULL,
+  gap_fill = c("interpolate", "zero")
 )
 }
 \arguments{
@@ -21,10 +24,25 @@ Extraktion unvollständig). Default \code{TRUE}.}
 
 \item{min_date}{Optionaler Startschnitt (Date oder "YYYY-MM-DD"); frühe,
 dünne Historie kann die Modelle stören. Default \code{NULL} (alles).}
+
+\item{countries}{Optionaler Vektor von ISO-2-Ländercodes des Lieferlands
+(\code{shipping_address_country_code}, z. B. \code{"DE"}), auf die gefiltert
+wird. \code{NULL} = alle Länder. Default \code{NULL}.}
+
+\item{exclude_countries}{Optionaler Vektor von ISO-2-Ländercodes, die
+\emph{ausgeschlossen} werden — für einen "Übrige Länder"-Sammelbucket.
+Zeilen ohne Ländercode gelten dabei als "übrig" und bleiben enthalten,
+damit Slices + Bucket wieder die Gesamtreihe ergeben. Default \code{NULL}.}
+
+\item{gap_fill}{Umgang mit Tagen ohne Bestellung: \code{"interpolate"}
+(Default — Wert fortschreiben; richtig für die dichte Gesamtreihe, die
+praktisch keine Löcher hat) oder \code{"zero"} (Lücke = 0 €; richtig für
+Länderreihen, wo ein fehlender Tag echte Nachfrage-Null bedeutet und
+Fortschreiben Umsatz erfinden würde).}
 }
 \value{
 \code{tsibble} mit Spalten \code{date} (Index, Tag) und
-  \code{revenue} (numeric). Fehlende Tage sind gefüllt und interpoliert.
+  \code{revenue} (numeric). Fehlende Tage sind gefüllt (siehe \code{gap_fill}).
 }
 \description{
 Aggregiert den Tagesumsatz direkt in DuckDB (RAM-sicher, keine
@@ -37,6 +55,7 @@ Tägliche Shopify-Umsatzreihe aus DuckDB extrahieren
 \examples{
 \dontrun{
 rev <- get_daily_revenue()
-print(rev)
+rev_de <- get_daily_revenue(countries = "DE", gap_fill = "zero")
+rev_rest <- get_daily_revenue(exclude_countries = c("DE", "AT"), gap_fill = "zero")
 }
 }
