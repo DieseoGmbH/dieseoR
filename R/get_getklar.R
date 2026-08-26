@@ -9,7 +9,10 @@
 #   * Auth:  Header `X-API-Key: klar_pk_<64 hex>` — KEIN Token-Exchange,
 #            kein `/public/auth/token`, kein Bearer.
 #   * Pfade: `/v1/public/...` (versioniert), nicht `/public/...`
-#   * endDate ist EXKLUSIV (Daten bis, aber ohne diesen Tag)
+#   * endDate-Semantik ist NICHT STABIL: laut Spec exklusiv, am 07.08.2026 auch
+#     so beobachtet — am 17.08.2026 lieferte derselbe Request den Endtag mit
+#     (inklusiv). Die Abruffunktionen schneiden das Ergebnis deshalb selbst auf
+#     den angeforderten Zeitraum zu und sind damit gegen beide Varianten robust.
 #   * Zwei-Schritt-Flow: Report anstossen -> `dataUrl` -> Seiten via `nextPage`
 #   * Kein Rate-Limit (60+ Seiten in Folge ohne 429)
 #   * ZWEI Grenzen, beide endpunktabhaengig und beide verifiziert:
@@ -259,6 +262,31 @@ get_getklar_report <- function(report,
 }
 
 
+#' @title Trim a Report to the Requested Date Range
+#' @description Interner Helper. Die endDate-Semantik der API ist nicht stabil
+#'   (mal exklusiv, mal inklusiv), deshalb wird das Ergebnis hier hart auf den
+#'   angeforderten Zeitraum beschnitten. Ohne das wandert je nach Serverstand
+#'   ein Zusatztag in jede Auswertung.
+#' @param df data.frame. Report-Ergebnis.
+#' @param date_col character. Name der Datumsspalte.
+#' @param from,to Date. Angeforderte Grenzen (beide inklusiv).
+#' @return `df`, beschnitten.
+#' @keywords internal
+.getklar_trim_range <- function(df, date_col, from, to) {
+  if (!nrow(df) || !date_col %in% names(df)) {
+    return(df)
+  }
+  d <- as.Date(df[[date_col]])
+  drop <- !is.na(d) & (d < from | d > to)
+  if (any(drop)) {
+    message(sprintf(
+      "   %d Zeile(n) ausserhalb %s..%s verworfen (endDate-Semantik)",
+      sum(drop), from, to
+    ))
+  }
+  df[!drop, , drop = FALSE]
+}
+
 #' Zeilen-Cap der Klar-API pro Report-Abruf (empirisch verifiziert).
 #' @keywords internal
 .GETKLAR_ROW_CAP <- 100000L
@@ -355,6 +383,10 @@ get_getklar_revenue <- function(shop = "Finance View",
 
     if ("calendar_date" %in% names(out)) {
       out$calendar_date <- as.Date(out$calendar_date)
+      out <- .getklar_trim_range(
+        out, "calendar_date",
+        as.Date(start_date), as.Date(end_date)
+      )
     }
   }
 
