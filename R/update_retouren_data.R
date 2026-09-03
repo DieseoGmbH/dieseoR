@@ -255,6 +255,12 @@ update_retouren_data <- function(api_key,
     d <- parsed$data$data
     if (is.null(d) || !is.data.frame(d) || nrow(d) == 0) next
 
+    # Verschachtelte Positionsliste sofort auf flache Spalten eindampfen --
+    # vor dem Cachen, damit weder die Chunks noch der Merge die 474k
+    # verschachtelten Data-Frames mitschleppen. Siehe
+    # summarise_requested_items() fuer die Begruendung.
+    d <- summarise_requested_items(d)
+
     saveRDS(d, cf)
     collected[[length(collected) + 1L]] <- d
 

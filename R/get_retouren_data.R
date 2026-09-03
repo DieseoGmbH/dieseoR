@@ -67,7 +67,7 @@ get_retouren_data <- function(api_key,
     # Daten entpacken (Wir springen in den doppelten data-Ordner!)
     raw_content <- httr::content(response, "text", encoding = "UTF-8")
     parsed_data <- jsonlite::fromJSON(raw_content, flatten = TRUE)
-    current_data <- parsed_data$data$data
+    current_data <- summarise_requested_items(parsed_data$data$data)
 
     # Abbruchbedingung prüfen
     if (is.null(current_data) || length(current_data) == 0 || nrow(current_data) == 0) {
