@@ -6,3 +6,4 @@
 ^\.pre-commit-config\.yaml$
 ^renv$
 ^renv\.lock$
+^scripts/auth_keys$
