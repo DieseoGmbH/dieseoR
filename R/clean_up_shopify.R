@@ -472,11 +472,29 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
       for (j in seq_len(nrow(r))) {
         rli <- r$refund_line_items[[j]]
         if (is.data.frame(rli) && nrow(rli) > 0 && "line_item_id" %in% names(rli)) {
+          # `restock_type` sagt, was mit der Ware passiert ist. Shopify kennt
+          # drei Auspraegungen, und die Unterscheidung ist fachlich wichtig:
+          #   return     - zurueck in den verkaufsfaehigen Bestand
+          #   no_restock - NICHT wieder eingelagert (Abschreibung oder
+          #                schlicht nicht erfasst)
+          #   cancel     - Storno VOR Versand; die Ware war nie beim Kunden
+          # Ohne die Trennung zaehlt jede Retourenquote die Stornos mit.
+          # Messung an den Roh-Chunks vom 10.09.2026 (16.757 Positionen):
+          #   no_restock 63,3 % | cancel 34,6 % | return 2,1 %
+          rt <- if ("restock_type" %in% names(rli)) {
+            as.character(rli$restock_type)
+          } else {
+            rep(NA_character_, nrow(rli))
+          }
+          qty <- if ("quantity" %in% names(rli)) as.numeric(rli$quantity) else rep(NA_real_, nrow(rli))
           li_rows[[length(li_rows) + 1L]] <- data.frame(
             line_item_id      = as.numeric(rli$line_item_id),
             returned_amount   = if ("subtotal" %in% names(rli)) as.numeric(rli$subtotal) else NA_real_,
             returned_tax      = if ("total_tax" %in% names(rli)) as.numeric(rli$total_tax) else NA_real_,
-            returned_quantity = if ("quantity" %in% names(rli)) as.numeric(rli$quantity) else NA_real_,
+            returned_quantity = qty,
+            restock_return    = ifelse(!is.na(rt) & rt == "return", qty, 0),
+            restock_none      = ifelse(!is.na(rt) & rt == "no_restock", qty, 0),
+            restock_cancel    = ifelse(!is.na(rt) & rt == "cancel", qty, 0),
             stringsAsFactors  = FALSE
           )
         }
@@ -517,12 +535,17 @@ clean_up_shopify <- function(shopify_data, endpoint = "orders") {
         returned_amount = sum(returned_amount, na.rm = TRUE),
         returned_tax = sum(returned_tax, na.rm = TRUE),
         returned_quantity = sum(returned_quantity, na.rm = TRUE),
+        restock_return = sum(restock_return, na.rm = TRUE),
+        restock_none = sum(restock_none, na.rm = TRUE),
+        restock_cancel = sum(restock_cancel, na.rm = TRUE),
         .groups = "drop"
       )
   } else {
     data.frame(
       line_item_id = numeric(0), returned_amount = numeric(0),
-      returned_tax = numeric(0), returned_quantity = numeric(0)
+      returned_tax = numeric(0), returned_quantity = numeric(0),
+      restock_return = numeric(0), restock_none = numeric(0),
+      restock_cancel = numeric(0)
     )
   }
 
