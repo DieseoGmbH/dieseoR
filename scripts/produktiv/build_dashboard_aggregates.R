@@ -151,4 +151,134 @@ message(
   abdeckung, " % der Vorgaenge zuordenbar."
 )
 
-message("[", Sys.time(), "] Fertig. shopifys_without_returns.rds, product_choices_ranked.rds und returns_agent_map.rds erstellt.")
+# ============================================================================
+# 7. Produkt- und Kostenkennzahlen zu Retouren  (NEU 10.09.2026)
+# ============================================================================
+# Drei Vorberechnungen fuer den Tab "Produkte & Kosten". Alle drei aggregieren
+# in DuckDB bzw. auf Order-Ebene und liefern kleine Dateien -- das Dashboard
+# soll nichts davon live rechnen (2,5 Mio. Zeilen je Jahr).
+message("[", Sys.time(), "] Baue Produkt- und Kostenkennzahlen ...")
+
+VON <- "2025-01-01" # Betrachtungsfenster; aelter lohnt sich fachlich nicht
+
+con2 <- DBI::dbConnect(duckdb::duckdb(),
+  dbdir = file.path(DASH_DATA, "shopify.duckdb"),
+  read_only = TRUE
+)
+
+tryCatch({
+  # --- 7a) Retourenquote je SKU -------------------------------------------
+  # Bezugsgroesse ist die STUECKZAHL, nicht der Umsatz: eine Quote von
+  # "13 % der Stueck" ist die Zahl, die Einkauf und Produktmanagement
+  # brauchen. Der Wert steht daneben, damit man teure von billigen
+  # Retouren unterscheiden kann.
+  sku_returns <- DBI::dbGetQuery(con2, sprintf("
+    SELECT
+      product_sku,
+      any_value(product_title)              AS produkt,
+      any_value(variant_title)              AS variante,
+      date_trunc('month', created_at)       AS monat,
+      sum(quantity)                         AS verkauft,
+      sum(returned_quantity)                AS retourniert,
+      sum(item_gross_revenue)               AS brutto_umsatz,
+      sum(returned_amount)                  AS retour_wert
+    FROM orders
+    WHERE created_at >= TIMESTAMP '%s'
+      AND product_sku IS NOT NULL AND product_sku <> ''
+    GROUP BY product_sku, date_trunc('month', created_at)", VON))
+  saveRDS(sku_returns, file.path(DASH_DATA, "sku_returns.rds"))
+  message(
+    "   sku_returns.rds: ", nrow(sku_returns), " SKU-Monats-Zeilen, ",
+    length(unique(sku_returns$product_sku)), " SKUs"
+  )
+
+  # --- 7b) Voll- vs. Teilretoure je Order ---------------------------------
+  # "100 % Rueckgabe" heisst: jedes bestellte Stueck kam zurueck. Das laesst
+  # sich nur auf Order-Ebene entscheiden, deshalb erst je Order verdichten
+  # und dann je Monat zaehlen.
+  order_return_profile <- DBI::dbGetQuery(con2, sprintf("
+    WITH o AS (
+      SELECT order_id,
+             date_trunc('month', min(created_at)) AS monat,
+             sum(quantity)          AS q,
+             sum(returned_quantity) AS r,
+             sum(item_gross_revenue) AS umsatz,
+             sum(returned_amount)    AS retour_wert
+      FROM orders WHERE created_at >= TIMESTAMP '%s'
+      GROUP BY order_id
+    )
+    SELECT monat,
+           count(*)                                        AS orders,
+           count(*) FILTER (WHERE r = 0)                    AS ohne_retoure,
+           count(*) FILTER (WHERE r > 0 AND r < q)          AS teil_retoure,
+           count(*) FILTER (WHERE r >= q AND r > 0)         AS voll_retoure,
+           round(sum(umsatz), 2)                            AS umsatz,
+           round(sum(retour_wert) FILTER (WHERE r >= q AND r > 0), 2) AS wert_voll,
+           round(sum(retour_wert) FILTER (WHERE r > 0 AND r < q), 2)  AS wert_teil
+    FROM o GROUP BY monat ORDER BY monat", VON))
+  saveRDS(order_return_profile, file.path(DASH_DATA, "order_return_profile.rds"))
+  message("   order_return_profile.rds: ", nrow(order_return_profile), " Monate")
+
+  # --- 7c) Kosten der Umtausche -------------------------------------------
+  # Ein Umtausch erzeugt in Shopify eine ERSATZBESTELLUNG. Deren Warenwert
+  # geht raus, ohne dass Geld hereinkommt -- das ist der eigentliche Preis
+  # eines Umtauschs und steht in keiner Erstattungssumme.
+  #
+  # Der Link dorthin steckt in `shopify_new_order_path` der Rohdaten
+  # (Beispiel: .../orders/6886956237129). clean_up_returns() wirft das Feld
+  # als PII-Kandidat weg, deshalb hier die Rohdatei lesen.
+  # Abdeckung (Messung 10.09.2026): 85,4 % der Umtausche, davon 99,99 %
+  # in Shopify auffindbar.
+  exchange_costs <- tryCatch(
+    {
+      raw_ret <- readRDS(file.path(datadir_returns <- "~/data/returns", "all_returns.rds"))
+      er <- raw_ret |>
+        mutate(
+          del      = !is.na(deleted_at) & deleted_at != "",
+          neu_id   = suppressWarnings(as.numeric(str_extract(shopify_new_order_path, "[0-9]+$"))),
+          monat    = as.Date(format(as.POSIXct(created_at, tz = "UTC"), "%Y-%m-01"))
+        ) |>
+        filter(!del, type %in% c("exchange", "mix"), !is.na(neu_id)) |>
+        # In der ROHdatei sind die Betragsfelder noch Text -- die Umwandlung
+        # macht sonst clean_up_returns(), das wir hier bewusst umgehen.
+        mutate(shipping_cost = suppressWarnings(as.numeric(shipping_cost))) |>
+        select(monat, type, neu_id, shipping_cost)
+
+      duckdb::duckdb_register(con2, "ersatz_ref", er |> distinct(neu_id))
+      kosten <- DBI::dbGetQuery(con2, "
+      SELECT o.order_id AS neu_id,
+             sum(o.item_gross_revenue) AS warenwert,
+             any_value(o.total_price)  AS total_price
+      FROM orders o JOIN ersatz_ref e ON o.order_id = e.neu_id
+      GROUP BY o.order_id")
+      duckdb::duckdb_unregister(con2, "ersatz_ref")
+
+      er |>
+        left_join(kosten, by = "neu_id") |>
+        group_by(monat, type) |>
+        summarise(
+          vorgaenge = n(),
+          mit_ersatzorder = sum(!is.na(warenwert)),
+          warenwert_raus = round(sum(warenwert, na.rm = TRUE), 2),
+          gegenwert = round(sum(total_price, na.rm = TRUE), 2),
+          retour_versand = round(sum(shipping_cost, na.rm = TRUE), 2),
+          .groups = "drop"
+        )
+    },
+    error = function(e) {
+      message("   FEHLER bei den Umtausch-Kosten: ", conditionMessage(e))
+      NULL
+    }
+  )
+  if (!is.null(exchange_costs)) {
+    saveRDS(exchange_costs, file.path(DASH_DATA, "exchange_costs.rds"))
+    message(
+      "   exchange_costs.rds: ", nrow(exchange_costs), " Monats-Zeilen, ",
+      "Warenwert gesamt ", round(sum(exchange_costs$warenwert_raus)), " EUR"
+    )
+  }
+}, finally = {
+  try(DBI::dbDisconnect(con2, shutdown = TRUE), silent = TRUE)
+})
+
+message("[", Sys.time(), "] Fertig. Aggregate erstellt: shopifys_without_returns, product_choices_ranked, returns_agent_map, sku_returns, order_return_profile, exchange_costs.")
