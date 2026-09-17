@@ -292,7 +292,10 @@ update_retouren_data <- function(api_key,
   if (file.exists(file_path)) {
     old <- readRDS(file_path)
     n_before <- nrow(old)
-    final <- dplyr::bind_rows(fetched, old) |> dplyr::distinct(id, .keep_all = TRUE)
+    # Typen der ID-Spalten angleichen, sonst bricht bind_rows() ab und der
+    # gesamte Abruf ist verloren -- siehe .align_id_types() am Dateiende.
+    aligned <- .align_id_types(fetched, old)
+    final <- dplyr::bind_rows(aligned$a, aligned$b) |> dplyr::distinct(id, .keep_all = TRUE)
   }
 
   saveRDS(final, file = file_path)
@@ -309,4 +312,75 @@ update_retouren_data <- function(api_key,
     n_fetched = nrow(fetched), n_new = nrow(final) - n_before,
     n_total = nrow(final), mode = mode
   ))
+}
+
+# ==============================================================================
+# Interner Helfer -- fuehrender Punkt haelt ihn aus dem Namespace heraus
+# (NAMESPACE exportiert per exportPattern alles, was mit einem Buchstaben
+# beginnt).
+# ==============================================================================
+
+#' Gleicht die Typen der ID-Spalten an, bevor zwei Retouren-Staende gebunden
+#' werden.
+#'
+#' WARUM ES DAS BRAUCHT: Die Retouren-API liefert `shopify_order_id` mal als
+#' JSON-Zahl, mal als String -- abhaengig davon, was in der jeweils geholten
+#' Seite vorkam. `bind_rows()` verweigert dann die Arbeit
+#' ("Can't combine `..1$shopify_order_id` <double> and `..2$...` <character>"),
+#' der komplette Abruf wird verworfen, und es faellt niemandem auf: Schritt 3
+#' der Nacht-Pipeline meldet den Fehler nur per `warning()`. Am 17.09.2026
+#' hat das 6.998 bereits geladene Datensaetze gekostet.
+#'
+#' STRATEGIE: Nur Spalten anfassen, deren Typen sich tatsaechlich
+#' unterscheiden -- ohne Konflikt bleibt alles unveraendert.
+#'   * ID-artige Spalten (`id`, `*_id`) werden beidseitig auf Character
+#'     normalisiert. Das ist der verlustfreie gemeinsame Nenner: IDs sind
+#'     Bezeichner, keine Rechengroessen.
+#'   * Alle anderen Typkonflikte werden NICHT stillschweigend zusammengebogen,
+#'     sondern mit Spaltennamen gemeldet. Dort waere eine automatische
+#'     Umwandlung womoeglich ein echter Datenverlust (Betragsspalten!).
+#'
+#' `sprintf("%.0f", ...)` statt `as.character()`: letzteres kann bei grossen
+#' Zahlen Exponentialschreibweise liefern ("5.12e+12") und wuerde die ID
+#' damit zerstoeren. NA bleibt NA und wird nicht zum Text "NA".
+#'
+#' @param a,b Data Frames, die gebunden werden sollen.
+#' @return Liste mit den angeglichenen Data Frames als `$a` und `$b`.
+#' @keywords internal
+.align_id_types <- function(a, b) {
+  to_chr <- function(x) {
+    if (is.character(x)) {
+      return(x)
+    }
+    out <- rep(NA_character_, length(x))
+    ok <- !is.na(x)
+    out[ok] <- if (is.double(x)) sprintf("%.0f", x[ok]) else as.character(x[ok])
+    out
+  }
+
+  konflikt <- character(0)
+  for (nm in intersect(names(a), names(b))) {
+    ca <- class(a[[nm]])[1]
+    cb <- class(b[[nm]])[1]
+    if (identical(ca, cb)) next
+
+    if (grepl("(^|_)id$", nm)) {
+      a[[nm]] <- to_chr(a[[nm]])
+      b[[nm]] <- to_chr(b[[nm]])
+      message(sprintf("  \u2194 Typangleich '%s': %s / %s -> character", nm, ca, cb))
+    } else {
+      konflikt <- c(konflikt, sprintf("%s (neu: %s / Bestand: %s)", nm, ca, cb))
+    }
+  }
+
+  if (length(konflikt)) {
+    stop("Typkonflikt in Nicht-ID-Spalten, nicht automatisch angeglichen:\n  ",
+      paste(konflikt, collapse = "\n  "),
+      "\n  -> Erst pruefen, was die API dort geaendert hat. Eine blinde",
+      "\n     Umwandlung koennte Werte verfaelschen.",
+      call. = FALSE
+    )
+  }
+
+  list(a = a, b = b)
 }
