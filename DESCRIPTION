@@ -13,18 +13,16 @@ Description: Functions to update and analyse dieseo-related datasets and create 
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
-URL: https://github.com/andresdies/dieseoR
-BugReports: https://github.com/andresdies/dieseoR/issues
+URL: https://github.com/DieseoGmbH/dieseoR
+BugReports: https://github.com/DieseoGmbH/dieseoR/issues
 Imports: 
     arrow,
     bigrquery,
     DBI,
-    devtools,
     dplyr,
     duckdb,
     fable,
     fabletools,
-    feasts,
     httr,
     httr2,
     janitor,
@@ -33,6 +31,8 @@ Imports:
     plotly,
     purrr,
     readxl,
+    rlang,
+    stats,
     stringr,
     tibble,
     tidyr,
@@ -40,5 +40,6 @@ Imports:
     tidytext,
     tsibble,
     udpipe,
+    utils,
     zoo
 Config/roxygen2/version: 8.0.0
