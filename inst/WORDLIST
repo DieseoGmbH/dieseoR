@@ -38,13 +38,16 @@ Aktualisiere
 aktualisiert
 aktualisierte
 Aktualisierung
+aktuell
 aktuellen
 aktueller
 aktuellste
 aktuellsten
 alle
+allein
 allen
 aller
+allgemein
 allgemeine
 als
 Altdaten
@@ -89,6 +92,7 @@ aufbereitetes
 aufgehen
 aufgeloeste
 aufgesplittet
+aufgetaucht
 aufloest
 aufsteigend
 aus
@@ -102,6 +106,7 @@ Ausnahme
 ausreichend
 ausschliesslich
 Auswahl
+Auswertung
 aut
 Auth
 Authentifiziert
@@ -170,6 +175,7 @@ betroffenen
 betroffener
 Beträge
 bevor
+bevorzugt
 Bewertungen
 Bewertungsdatum
 bewusst
@@ -218,6 +224,7 @@ dann
 daran
 daraus
 Daraus
+darüber
 Das
 das
 Dashboardly
@@ -312,6 +319,8 @@ eines
 einfangen
 einmal
 Eintraege
+Eintrag
+eintragen
 Einzelhebel
 einzelnen
 einzige
@@ -340,6 +349,7 @@ Entsprechung
 entspricht
 entstehen
 Entweder
+entweder
 erfassen
 erfinden
 Erfolg
@@ -347,6 +357,7 @@ erfolgreichem
 ergaenzt
 ergeben
 Ergebnis
+ergänzen
 Ergänzt
 erhaelt
 erhöhen
@@ -359,6 +370,7 @@ ermittelt
 erneut
 erreicht
 erscheinen
+erscheint
 ersetzen
 Ersetzen
 erstattet
@@ -398,6 +410,9 @@ faellt
 faengt
 Faengt
 Fallstricke
+falsch
+Familie
+Familien
 fehlen
 Fehlende
 fehlenden
@@ -436,7 +451,11 @@ fuer
 Funktion
 Funktionen
 Fußzeile
+fällt
+fängt
+Fängt
 führt
+fünfmal
 für
 geaendert
 geaenderte
@@ -595,9 +614,11 @@ Jahre
 Jahres
 Jahresabweichung
 Jahressaison
+Jahressale
 Jahressummen
 Jahresumsätze
 Jahreswerte
+Jahreszahlen
 Januar
 je
 jede
@@ -628,6 +649,7 @@ Kaskade
 kein
 keine
 keinen
+keiner
 kennt
 Kennzahl
 Kennzahlen
@@ -662,11 +684,13 @@ KPI
 KPIs
 Kriterien
 Kundenbewertungen
+künftige
 Ladevorgang
 Laedt
 Laender
 Laesst
 laeuft
+landet
 Langfrist
 langfristige
 lassen
@@ -721,6 +745,7 @@ Mal
 mal
 Manueller
 MAPE
+Marken
 MAs
 massiv
 Masterdatei
@@ -847,12 +872,14 @@ Pammys
 Parallelzugriffe
 parst
 passend
+passende
 passt
 paypal
 Periode
 Perioden
 Periodenbeginn
 Pfad
+Pflege
 Pflichtparameter
 Planung
 planungsrelevante
@@ -868,8 +895,11 @@ Preise
 Preisen
 priceReductions
 produkt
+Produktfamilien
 Produktionshorizont
 Produktivmodell
+Produktperformance
+Produkttitel
 Prognose
 Prognosebasis
 Prognosehorizont
@@ -882,6 +912,7 @@ Prozent
 Prozess
 pruefen
 prueft
+Präfix
 pummmys
 pummys
 Punktprognose
@@ -911,9 +942,12 @@ Referenz
 Referenzzeilen
 Regel
 regelmäßig
+Regeln
+Regelwerk
 reichen
 Reihe
 Reihen
+Reihenfolge
 Reine
 reisst
 Rekonstruktion
@@ -971,8 +1005,10 @@ schonend
 schreibgeschützte
 schreibt
 Schreibt
+Schreibweisen
 Schritt
 Schritten
+Schuh
 schweren
 schwerschwänzige
 Schützt
@@ -981,6 +1017,7 @@ Seite
 Seiten
 Seitenzahl
 selbst
+Semantik
 separiert
 serverseitige
 serverseitigen
@@ -1004,6 +1041,7 @@ signiertes
 Signifikanz
 sind
 Skripte
+sobald
 sodass
 solange
 soll
@@ -1020,6 +1058,7 @@ Spaltendefinitionen
 Spaltennamen
 Spaltensätzen
 speichert
+Spezifisch
 spezifische
 spezifischen
 spezifizierten
@@ -1033,6 +1072,7 @@ standardisiert
 Standardmaessig
 standardmäßig
 Startdatum
+startet
 Startpunkt
 Startschnitt
 statistisches
@@ -1056,6 +1096,7 @@ stringr
 Struktur
 strukturell
 strukturierter
+Stufen
 Stunden
 stören
 stündliche
@@ -1095,12 +1136,15 @@ tidyselect
 tidytext
 TikTok
 timeframe
+Titel
+Titeln
 Touchpoint
 Trainiert
 Trainingsfenster
 Trainingsfensters
 transactionCosts
 Transaktionsdatum
+treffen
 Treffer
 trifft
 trotz
@@ -1156,6 +1200,7 @@ Vektor
 veraendert
 veraltete
 verbindlich
+Verbraucher
 verdichten
 Verdichtet
 verdrahtet
@@ -1184,6 +1229,7 @@ verschachtelte
 Verschachtelte
 verschachteltes
 Verschiebt
+verschwindet
 versprechen
 verteilt
 verweigert
@@ -1218,6 +1264,7 @@ vorhandenen
 Vorhersagen
 Vorjahr
 vorkam
+Vorrang
 VSA
 Wachstum
 Wachstumsrate
@@ -1226,6 +1273,7 @@ waehrend
 waere
 waeren
 Warnen
+warnt
 Warum
 warum
 weder
@@ -1268,6 +1316,7 @@ Zahl
 Zahlen
 Zahlenwerten
 Zahlungsdienstleister
+zeigt
 Zeile
 Zeilen
 zeilenweise
@@ -1279,6 +1328,7 @@ Zeitstempel
 Zendesk
 zentralen
 Zentrales
+zerlegt
 zerstoeren
 zieht
 Ziehung
@@ -1288,6 +1338,7 @@ Zieltabelle
 zu
 Zufalls
 zufällig
+zugeordnet
 zugewiesen
 zugewiesenen
 zum
