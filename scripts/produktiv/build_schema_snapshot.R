@@ -142,7 +142,8 @@ rds_serving <- c(
   "all_tickets_selected.rds",
   "all_returns_cleaned.rds",
   "cleaned_trustpilot.rds",
-  "all_paypal_transactions_cleaned.rds",
+  # PayPal am 16.09.2026 entfallen: kein Verbraucher, Pipeline-Schritt 6
+  # deaktiviert. Das vollstaendige readRDS() hier kostete ausserdem Laufzeit.
   "trustpilot_themes.rds",
   "trustpilot_tokens.rds",
   "shopifys_without_returns.rds",
@@ -154,8 +155,7 @@ for (f in rds_serving) describe_rds(file.path(DASH_DATA, f), f)
 add("## RDS-Dateien (Master in ~/data/)", "")
 rds_master <- c(
   "meta/meta_daily_request.rds",
-  "meta/meta_hourly_request.rds",
-  "paypal/all_paypal_transactions_cleaned.rds"
+  "meta/meta_hourly_request.rds"
 )
 for (f in rds_master) describe_rds(file.path(DATADIR, f), f)
 

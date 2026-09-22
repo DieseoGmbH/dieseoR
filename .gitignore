@@ -21,3 +21,7 @@ datadir/
 # nicht in .gitignore -- in einem OEFFENTLICHEN Repo ein 'git add .' vom Leak
 # entfernt. Die *.json-Regel oben greift nicht fuer den ganzen Ordner.
 scripts/auth_keys/
+
+# Produktfamilien-Override: einzige CSV, die versioniert gehoert -- sie ist
+# Pipeline-Input (build_product_performance.R), kein Datenexport.
+!scripts/produktiv/produkt_familien_override.csv
